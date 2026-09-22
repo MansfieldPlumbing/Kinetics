@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canvas 2D Deformation, Projection, and Per-Letter Motion Examples</title>
+<style>
+body{margin:0;background:#080808;color:#eee;font-family:Arial,sans-serif;padding:36px}
+h1{font-size:40px;margin:0 0 8px}.sub{color:#888;margin-bottom:28px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(280px,1fr));gap:14px}
+.card{border:1px solid #292929;background:#0d0d0d;padding:20px;min-height:130px}
+.card h2{font-size:20px;margin:0 0 8px}.card p{color:#999;line-height:1.45}
+.card a{display:inline-block;margin-top:8px;color:#fff;text-decoration:none;border-bottom:1px solid #777;font-weight:700}
+.tag{font:700 10px monospace;color:#555;letter-spacing:.1em}
+</style>
+</head>
+<body>
+<div class="tag">CANVAS 2D IMPLEMENTATION EXAMPLES / 04</div>
+<h1>Deformation, Projection, and Per-Letter Motion</h1>
+<div class="sub">Four dependency-free Canvas 2D implementation examples.</div>
+<div class="grid">
+  <div class="card">
+    <h2>Vertical-Slice Raster Text Deformation</h2>
+    <p>Rasterizes a word to an offscreen canvas and independently translates and scales vertical source slices.</p>
+    <a href="canvas2d-vertical-slice-raster-text-deformation.html">OPEN EXAMPLE</a>
+  </div>
+  <div class="card">
+    <h2>Repeated Text Perspective Projection with Depth Sorting</h2>
+    <p>Projects repeated text rings from scalar depth and draws them in far-to-near order.</p>
+    <a href="canvas2d-repeated-text-perspective-projection-depth-sort.html">OPEN EXAMPLE</a>
+  </div>
+  <div class="card">
+    <h2>Letter Spiral Transform and Crossfade</h2>
+    <p>Moves letters along spiral offsets while changing scale, rotation, opacity, and character identity.</p>
+    <a href="canvas2d-letter-spiral-position-scale-rotation-crossfade.html">OPEN EXAMPLE</a>
+  </div>
+  <div class="card">
+    <h2>Delayed Per-Letter Hinge Rotation</h2>
+    <p>Applies a time delay and a rotation curve to each letter card. It does not calculate collisions.</p>
+    <a href="canvas2d-delayed-letter-hinge-rotation-sequence.html">OPEN EXAMPLE</a>
+  </div>
+</div>
+</body>
+</html>

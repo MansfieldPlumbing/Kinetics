@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Balance Scale Chorus Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0b0e14;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #171c26; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Balance Scale Chorus Engine
+ * A literal see-saw scale acts out "whatever you do to the left of the
+ * sign, do it to the right" — operations drop onto each pan in sync,
+ * the beam tips then re-levels, visually proving the balance concept
+ * the chorus describes, before swinging into the next lyric line.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+// Each cue: a lyric line, plus an operation token that drops onto both
+// pans simultaneously (the "do it to both sides" beat).
+const cues = [
+  { lyric: "Whatever you do to the left of the sign,", op: null },
+  { lyric: "Do it to the right and you're doing just fine!", op: "+4" },
+  { lyric: "It's all about balance, keeping the scale,", op: null },
+  { lyric: "Follow the golden rule and you will never fail.", op: "\u00F72" },
+  { lyric: "Find the X, find the Y, solve the unknown,", op: null },
+  { lyric: "Step by step, line by line, till the answer is shown.", op: "=" }
+];
+
+let cueIndex = 0;
+let state = 'hold';
+let stateFrame = 0;
+const DUR = { hold: 78, drop: 26, settle: 34, tilt: 30 };
+let tiltAngle = 0;
+let dropProgress = 0;
+let opAlpha = 0;
+
+function cubicOut(t) { return 1 - Math.pow(1 - t, 3); }
+function cubicInOut(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+function drawScale(cx, cy, angle, leftLabel, rightLabel, pulseL, pulseR) {
+  const beamLen = 260;
+  ctx.save();
+  ctx.translate(cx, cy);
+
+  // fulcrum post
+  ctx.fillStyle = '#5b6b82';
+  ctx.fillRect(-8, 0, 16, 90);
+  ctx.beginPath();
+  ctx.moveTo(-30, 90); ctx.lineTo(30, 90); ctx.lineTo(0, 60); ctx.closePath();
+  ctx.fill();
+
+  // beam (rotates around fulcrum)
+  ctx.save();
+  ctx.rotate(angle);
+  ctx.strokeStyle = '#8fa2ba';
+  ctx.lineWidth = 6;
+  ctx.beginPath();
+  ctx.moveTo(-beamLen / 2, 0);
+  ctx.lineTo(beamLen / 2, 0);
+  ctx.stroke();
+
+  // pans hang from beam ends, staying visually near-vertical
+  [-1, 1].forEach(side => {
+    const px = side * beamLen / 2;
+    const py = 0;
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.rotate(-angle);
+    ctx.strokeStyle = '#8fa2ba';
+    ctx.lineWidth = 3;
+    ctx.beginPath(); ctx.moveTo(-38, 6); ctx.lineTo(0, 46); ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(38, 6); ctx.lineTo(0, 46); ctx.stroke();
+    ctx.strokeStyle = '#c7d3e2';
+    ctx.beginPath();
+    ctx.ellipse(0, 46, 42, 12, 0, 0, Math.PI * 2);
+    ctx.stroke();
+
+    const label = side < 0 ? leftLabel : rightLabel;
+    const pulse = side < 0 ? pulseL : pulseR;
+    if (label) {
+      ctx.font = '700 30px "Consolas", monospace';
+      ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      ctx.fillStyle = pulse > 0 ? `rgba(255,210,90,${0.6 + 0.4 * pulse})` : '#eaf1fa';
+      ctx.shadowColor = 'rgba(255,210,90,0.8)';
+      ctx.shadowBlur = 14 * pulse;
+      ctx.fillText(label, 0, 30);
+      ctx.shadowBlur = 0;
+    }
+    ctx.restore();
+  });
+  ctx.restore();
+
+  ctx.restore();
+}
+
+function draw() {
+  ctx.fillStyle = '#0b0e14';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  const cue = cues[cueIndex];
+
+  if (state === 'hold') {
+    tiltAngle = 0; dropProgress = 0; opAlpha = 0;
+    if (stateFrame >= DUR.hold) {
+      if (cue.op) { state = 'drop'; stateFrame = 0; } else { advanceCue(); }
+    }
+  } else if (state === 'drop') {
+    const t = Math.min(stateFrame / DUR.drop, 1);
+    dropProgress = cubicOut(t);
+    opAlpha = t;
+    if (t >= 1) { state = 'tilt'; stateFrame = 0; }
+  } else if (state === 'tilt') {
+    const t = Math.min(stateFrame / DUR.tilt, 1);
+    const e = cubicInOut(t);
+    tiltAngle = Math.sin(e * Math.PI) * 0.12;
+    if (t >= 1) { state = 'settle'; stateFrame = 0; }
+  } else if (state === 'settle') {
+    const t = Math.min(stateFrame / DUR.settle, 1);
+    tiltAngle = (1 - cubicInOut(t)) * 0.0;
+    if (t >= 1) { advanceCue(); }
+  }
+
+  function advanceCue() {
+    cueIndex = (cueIndex + 1) % cues.length;
+    state = 'hold'; stateFrame = 0;
+  }
+
+  drawScale(canvas.width / 2, 190, tiltAngle,
+    cue.op ? cue.op : 'X', cue.op ? cue.op : 'X',
+    cue.op ? dropProgress : 0, cue.op ? dropProgress : 0);
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '600 30px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#eaf1fa';
+  ctx.fillText(cue.lyric, canvas.width / 2, 440);
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

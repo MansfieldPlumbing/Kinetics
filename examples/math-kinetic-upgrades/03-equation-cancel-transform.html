@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Equation Cancel Transform</title><style>html,body{margin:0;height:100%;background:#070b09;display:grid;place-items:center;overflow:hidden}canvas{width:min(100vw,960px);height:auto;box-shadow:0 30px 90px #000}</style></head><body><canvas id="c" width="960" height="540"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d'),W=c.width,H=c.height,CX=W/2,CY=H/2;
+const clamp=t=>Math.max(0,Math.min(1,t)),out=t=>1-Math.pow(1-t,3),io=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+const D=9.4;
+function text(s,px,py,size,a=1,color='#eef8f1',blur=0,scale=1){x.save();x.globalAlpha=a;x.translate(px,py);x.scale(scale,scale);x.font=`900 ${size}px Consolas,monospace`;x.textAlign='center';x.textBaseline='middle';x.fillStyle=color;x.shadowColor=color;x.shadowBlur=blur;x.fillText(s,0,0);x.restore()}
+function slash(px,py,a,span=58){x.save();x.globalAlpha=a;x.strokeStyle='#ffbe5c';x.lineWidth=5;x.beginPath();x.moveTo(px-span/2,py+28);x.lineTo(px+span/2,py-28);x.stroke();x.restore()}
+function draw(){requestAnimationFrame(draw);let t=(performance.now()/1000)%D;x.fillStyle='#070b09';x.fillRect(0,0,W,H);for(let gy=80;gy<H;gy+=48){x.fillStyle='rgba(110,170,130,.035)';x.fillRect(0,gy,W,1)}
+const enter=clamp(t/1.0),minus=clamp((t-1.5)/.8),hit=clamp((t-2.15)/.4),cancel=clamp((t-2.5)/1.1),compute=clamp((t-3.7)/1.2),compact=clamp((t-5.1)/1.0),hold=clamp((t-6.0)/.4),exit=clamp((t-8.0)/.9);
+let aa=(1-exit);
+// term-level assembly: each token has identity; no rendered full-string replacement
+const E=out(enter);text('X',282,250,70,E*aa,'#ffffff',10);text('+4',390,250,70,E*aa,'#9ce2ff',10);text('=',500,250,70,E*aa,'#d9e4df',6);text('10',635,250,70,E*aa,'#ffffff',10);
+// -4 enters as a fast path-following operator and clones across equality
+if(minus>0){let e=io(minus),px=70+e*320;for(let k=6;k>=1;k--)text('−4',px-k*26,365,38,.04*(7-k)*aa,'#ffcd65',8);text('−4',px,365,42,aa,'#ffcd65',18);let clone=clamp((minus-.62)/.38);if(clone>0)text('−4',500+(135)*out(clone),365,42,aa,'#ffcd65',18);}
+if(hit>0){let q=Math.sin(hit*Math.PI)*14;text('−4',390+q,365,42,aa,'#ffcd65',22);text('−4',635-q,365,42,aa,'#ffcd65',22)}
+// cancellation is visual algebra: +4 / -4 annihilate into particles
+if(cancel>0){let e=out(cancel);slash(390,250,e*aa);slash(390,365,e*aa);for(let i=0;i<22;i++){let ang=i*2.399,rr=e*(35+(i%5)*9);x.save();x.globalAlpha=(1-e)*.7*aa;x.fillStyle=i%2?'#9ce2ff':'#ffcd65';x.beginPath();x.arc(390+Math.cos(ang)*rr,307+Math.sin(ang)*rr,2.2,0,Math.PI*2);x.fill();x.restore();}}
+// right side actually computes 10-4 -> 6 with split-flap-ish compression
+if(compute>0){let e=io(compute);let sx=635,sy=365;slash(sx,sy,out(compute)*aa);let flip=Math.abs(Math.cos(e*Math.PI));let ch=e<.5?'10−4':'6';text(ch,635,365,42,(1-cancel*.35)*aa,'#ffcd65',12,flip+.04);}
+// old tokens evacuate; X and 6 magnetically snap into the solved statement
+if(compact>0){let e=out(compact);let x1=282+(410-282)*e,y1=250+(280-250)*e;let x2=635+(550-635)*e,y2=250+(280-250)*e;let eqx=500+(480-500)*e;text('X',x1,y1,70,aa,'#ffffff',16);text('=',eqx,280,70,aa,'#d9e4df',8);text('6',x2,y2,70,aa,'#ffffff',16);}
+if(hold>0){let pulse=.65+.35*Math.sin(t*9);text('SOLVED',CX,435,28,hold*aa,'#72f0b1',18*pulse);}
+}
+draw();
+</script></body></html>

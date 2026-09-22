@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Ink Bleed Stamp Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #e9e4d8;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #cfc9ba; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Ink Bleed Stamp Engine
+ * A rubber-stamp word slams down with impact shake and a rough inked edge
+ * (destination-out bites), holds like worn print, then organic ink blobs
+ * grow to cover the frame and shrink away to reveal the next stamp.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const phrases = [
+  { text: "APPROVED", color: '#c81e1e' },
+  { text: "URGENT", color: '#1e3ac8' },
+  { text: "CONFIDENTIAL", color: '#7a1ec8' },
+  { text: "FINAL DRAFT", color: '#1e8a3c' }
+];
+let idx = 0;
+
+function fitFont(text, maxWidth) {
+  let size = 110;
+  ctx.font = `900 ${size}px "Arial Black", sans-serif`;
+  while (ctx.measureText(text).width > maxWidth && size > 30) {
+    size -= 3; ctx.font = `900 ${size}px "Arial Black", sans-serif`;
+  }
+  return size;
+}
+
+function makeSpeckleMask() {
+  const arr = [];
+  for (let i = 0; i < 40; i++) {
+    arr.push({ angle: Math.random() * Math.PI * 2, r: 3 + Math.random() * 10 });
+  }
+  return arr;
+}
+let speckle = makeSpeckleMask();
+let rotation = (Math.random() - 0.5) * 0.08;
+
+let state = 'impact';
+let stateFrame = 0;
+const DUR = { impact: 18, hold: 75, wipe: 42 };
+const blobOffsets = Array.from({ length: 7 }, () => ({
+  ax: (Math.random() - 0.5) * 700, ay: (Math.random() - 0.5) * 400
+}));
+
+function cubicOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+function drawStamp(phrase, scale, alpha, speckleMask, rot) {
+  const size = fitFont(phrase.text, canvas.width - 140);
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.rotate(rot);
+  ctx.scale(scale, scale);
+  ctx.globalAlpha = alpha;
+
+  ctx.font = `900 ${size}px "Arial Black", sans-serif`;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  const textW = ctx.measureText(phrase.text).width;
+  const padX = 40, padY = 34;
+  const boxW = textW + padX * 2, boxH = size * 0.9 + padY * 2;
+
+  ctx.save();
+  ctx.strokeStyle = phrase.color;
+  ctx.lineWidth = 8;
+  ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
+  ctx.restore();
+
+  ctx.save();
+  ctx.globalCompositeOperation = 'destination-out';
+  speckleMask.forEach(s => {
+    const bx = Math.cos(s.angle) * (boxW / 2.4);
+    const by = Math.sin(s.angle) * (boxH / 1.6);
+    ctx.beginPath();
+    ctx.arc(bx, by, s.r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+  ctx.restore();
+
+  ctx.fillStyle = phrase.color;
+  ctx.fillText(phrase.text, 0, 2);
+
+  ctx.fillStyle = phrase.color;
+  for (let i = 0; i < 60; i++) {
+    const gx = (Math.random() - 0.5) * boxW * 0.9;
+    const gy = (Math.random() - 0.5) * boxH * 0.9;
+    ctx.globalAlpha = alpha * Math.random() * 0.25;
+    ctx.fillRect(gx, gy, 1.5, 1.5);
+  }
+
+  ctx.restore();
+}
+
+function draw() {
+  ctx.fillStyle = '#e9e4d8';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  ctx.fillStyle = 'rgba(0,0,0,0.02)';
+  for (let i = 0; i < 200; i++) {
+    ctx.fillRect(Math.random() * canvas.width, Math.random() * canvas.height, 1, 1);
+  }
+
+  stateFrame++;
+  const cur = phrases[idx];
+
+  if (state === 'impact') {
+    const t = Math.min(stateFrame / DUR.impact, 1);
+    const e = cubicOut(t);
+    const scale = 1.6 - 0.6 * e;
+    const shakeMag = (1 - t) * 10;
+    ctx.save();
+    ctx.translate((Math.random() - 0.5) * shakeMag, (Math.random() - 0.5) * shakeMag);
+    drawStamp(cur, scale, e, speckle, rotation);
+    ctx.restore();
+    if (t >= 1) { state = 'hold'; stateFrame = 0; }
+  } else if (state === 'hold') {
+    drawStamp(cur, 1, 1, speckle, rotation);
+    if (stateFrame >= DUR.hold) { state = 'wipe'; stateFrame = 0; }
+  } else if (state === 'wipe') {
+    const t = stateFrame / DUR.wipe;
+    const nextIdx = (idx + 1) % phrases.length;
+    const nextPhrase = phrases[nextIdx];
+    let blobScale;
+    if (t < 0.5) {
+      blobScale = t / 0.5;
+      drawStamp(cur, 1, 1, speckle, rotation);
+    } else {
+      blobScale = 1 - (t - 0.5) / 0.5;
+      drawStamp(nextPhrase, 1, 1, speckle, rotation);
+    }
+
+    const maxR = Math.hypot(canvas.width, canvas.height) * 0.65;
+    ctx.save();
+    ctx.fillStyle = cur.color;
+    blobOffsets.forEach(o => {
+      ctx.beginPath();
+      ctx.arc(canvas.width / 2 + o.ax, canvas.height / 2 + o.ay, maxR * blobScale, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+
+    if (t >= 1) {
+      idx = nextIdx;
+      speckle = makeSpeckleMask();
+      rotation = (Math.random() - 0.5) * 0.08;
+      state = 'hold'; stateFrame = 0;
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

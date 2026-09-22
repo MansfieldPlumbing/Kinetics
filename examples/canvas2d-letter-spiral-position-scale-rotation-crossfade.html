@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canvas 2D Letter Spiral Position, Scale, Rotation, and Crossfade</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#06070a;color:#fff;font-family:Arial,sans-serif}
+canvas{display:block;width:100vw;height:100vh}.hud{position:fixed;left:20px;top:18px;font:700 11px/1.55 monospace;letter-spacing:.12em;color:#737b8a}.hud strong{color:#fff}.prompt{position:fixed;left:20px;bottom:18px;font:700 10px monospace;color:#515866}
+</style></head><body>
+<canvas id="c"></canvas>
+<div class="hud"><strong>LETTER SPIRAL TRANSFORM</strong><br>POSITION → SCALE → ROTATION → CROSSFADE</div>
+<div class="prompt">CLICK TO FORCE NEXT TRANSITION</div>
+<script>
+const c=document.getElementById('c'),ctx=c.getContext('2d');
+let W,H,dpr=1,epoch=performance.now(),forced=0;
+const words=['SCATTER','SPIRALS','REBUILD']; // equal length keeps glyph identity readable through the morph
+const N=7, cycle=5.6;
+const seeds=Array.from({length:N},(_,i)=>({
+  a:(i*2.399963229728653)+.6,
+  r:.24+.09*(i%4),
+  turns:1.7+(i%3)*.45,
+  lift:(i%2?1:-1)*(.1+.025*i)
+}));
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*dpr;c.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+function ease(t){t=Math.max(0,Math.min(1,t));return t*t*(3-2*t)}
+function positions(word){
+  const fs=Math.max(76,Math.min(220,W/5.5));
+  ctx.font=`900 ${fs}px Arial Black,Impact,sans-serif`;
+  const widths=[...word].map(ch=>ctx.measureText(ch).width*.94);
+  const total=widths.reduce((a,b)=>a+b,0);
+  let x=W/2-total/2;
+  return widths.map((w,i)=>{const p={x:x+w/2,y:H/2,fs};x+=w;return p});
+}
+function glyphState(i,t,A,B){
+  const p0=A[i],p1=B[i],s=seeds[i];
+  const e=ease(t), bell=Math.sin(Math.PI*e);
+  const baseX=p0.x+(p1.x-p0.x)*e, baseY=p0.y+(p1.y-p0.y)*e;
+  const angle=s.a+s.turns*Math.PI*2*e;
+  const radius=Math.min(W,H)*s.r*bell;
+  // y squash gives the spiral a camera-like ellipse instead of a flat circle
+  const x=baseX+Math.cos(angle)*radius;
+  const y=baseY+Math.sin(angle)*radius*.58+s.lift*H*bell;
+  const depth=.35+.65*Math.abs(Math.cos(angle*.5));
+  const scale=(1-.54*bell)*(0.78+.28*depth);
+  const rot=(angle-s.a)*.35+Math.sin(angle)*.28*bell;
+  return{x,y,scale,rot,alpha:.42+.58*depth};
+}
+function drawGlyph(ch,s,alpha=1,blur=0){
+  ctx.save();ctx.translate(s.x,s.y);ctx.rotate(s.rot);ctx.scale(s.scale,s.scale);
+  ctx.font=`900 ${Math.max(70,Math.min(220,W/5.5))}px Arial Black,Impact,sans-serif`;
+  ctx.textAlign='center';ctx.textBaseline='middle';ctx.globalAlpha=alpha*s.alpha;
+  ctx.filter=blur?`blur(${blur}px)`:'none';ctx.fillStyle='#fff';ctx.fillText(ch,0,0);ctx.restore();
+}
+function draw(now){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle='#06070a';ctx.fillRect(0,0,W,H);
+  const elapsed=((now-epoch)/1000+forced)% (cycle*words.length);
+  const idx=Math.floor(elapsed/cycle)%words.length, local=elapsed%cycle;
+  const next=(idx+1)%words.length, a=words[idx], b=words[next], A=positions(a),B=positions(b);
+  let t;
+  if(local<1.15)t=0;
+  else if(local<4.45)t=(local-1.15)/3.30;
+  else t=1;
+  // Spiral-path guide ellipses
+  if(t>0&&t<1){
+    const bell=Math.sin(Math.PI*t);
+    ctx.strokeStyle=`rgba(255,255,255,${.05*bell})`;
+    for(let k=1;k<=4;k++){ctx.beginPath();ctx.ellipse(W/2,H/2,Math.min(W,H)*.13*k,Math.min(W,H)*.07*k,0,0,Math.PI*2);ctx.stroke();}
+  }
+  for(let i=0;i<N;i++){
+    const s=glyphState(i,t,A,B);
+    // temporal echo trail
+    if(t>0.03&&t<.97){
+      for(let q=3;q>=1;q--){
+        const st=glyphState(i,Math.max(0,t-q*.018),A,B);
+        drawGlyph(t<.5?a[i]:b[i],st,.055*q,3+q*2);
+      }
+    }
+    const cross=ease((t-.44)/.12);
+    if(cross<1)drawGlyph(a[i],s,1-cross,0);
+    if(cross>0)drawGlyph(b[i],s,cross,0);
+  }
+  ctx.font='700 11px monospace';ctx.textAlign='center';ctx.fillStyle='rgba(255,255,255,.42)';
+  ctx.fillText(t===0?'COHERENT':t===1?'REASSEMBLED':'IN TRANSIT',W/2,H*.78);
+  requestAnimationFrame(draw);
+}
+addEventListener('resize',resize);
+addEventListener('pointerdown',()=>{forced=(forced+cycle)%(cycle*words.length)});
+resize();requestAnimationFrame(draw);
+</script></body></html>

@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>WebGL Texture-Coordinate Warp and Color-Offset Modes</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body, html {
+    width: 100%; height: 100%;
+    overflow: hidden;
+    background: #0a0a0a;
+    font-family: ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, monospace;
+    color: #e0e0e0;
+  }
+  #viewport {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    display: block;
+  }
+  #ui {
+    position: absolute;
+    bottom: 24px; left: 24px;
+    z-index: 10;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    background: rgba(14, 14, 14, 0.85);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    padding: 16px;
+    border-radius: 4px;
+    max-width: 480px;
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.6);
+  }
+  .row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+  }
+  .row label { width: 70px; color: #888; }
+  input[type="text"] {
+    background: #181818;
+    border: 1px solid #333;
+    color: #fff;
+    padding: 6px 10px;
+    font-family: inherit;
+    font-size: 12px;
+    flex: 1;
+    outline: none;
+  }
+  input[type="text"]:focus { border-color: #777; }
+  .btn-group { display: flex; gap: 4px; flex-wrap: wrap; flex: 1; }
+  button {
+    background: #202020;
+    border: 1px solid #333;
+    color: #aaa;
+    padding: 5px 8px;
+    font-size: 10px;
+    font-family: inherit;
+    cursor: pointer;
+    text-transform: uppercase;
+  }
+  button:hover { background: #2a2a2a; color: #fff; }
+  button.active { background: #e0e0e0; color: #000; border-color: #fff; font-weight: 700; }
+  input[type="range"] {
+    flex: 1;
+    accent-color: #ffffff;
+    cursor: pointer;
+  }
+  #perf {
+    position: absolute;
+    top: 24px; right: 24px;
+    font-size: 11px;
+    color: #666;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+  }
+</style>
+</head>
+<body>
+
+<canvas id="viewport"></canvas>
+
+<div id="perf">60 FPS | WEBGL INTEROP</div>
+
+<div id="ui">
+  <div class="row">
+    <label>Payload</label>
+    <input type="text" id="str-input" value="TEXTURE WARP">
+  </div>
+  <div class="row">
+    <label>Mode</label>
+    <div class="btn-group" id="modes">
+      <button class="active" data-mode="0">Horizontal Band Offset</button>
+      <button data-mode="1">Polar Coordinate Warp</button>
+      <button data-mode="2">Noise Displacement and Threshold</button>
+      <button data-mode="3">Row-Based Horizontal Smear</button>
+      <button data-mode="4">Scale and Color Inversion</button>
+    </div>
+  </div>
+  <div class="row">
+    <label>Phase</label>
+    <input type="range" id="phase-scrub" min="0" max="1" step="0.001" value="0">
+    <button id="auto-btn" class="active">Loop</button>
+  </div>
+</div>
+
+<script id="vs" type="x-shader/x-vertex">
+  attribute vec2 a_pos;
+  varying vec2 v_uv;
+  void main() {
+    v_uv = (a_pos + 1.0) * 0.5;
+    v_uv.y = 1.0 - v_uv.y; 
+    gl_Position = vec4(a_pos, 0.0, 1.0);
+  }
+</script>
+
+<script id="fs" type="x-shader/x-fragment">
+  precision highp float;
+  varying vec2 v_uv;
+  uniform sampler2D u_tex;
+  uniform vec2 u_res;
+  uniform float u_time;
+  uniform float u_progress;
+  uniform int u_mode;
+
+  #define PI 3.14159265359
+
+  // Hash & noise utilities
+  float hash(vec2 p) {
+    return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453123);
+  }
+
+  float noise(vec2 p) {
+    vec2 i = floor(p);
+    vec2 f = fract(p);
+    vec2 u = f * f * (3.0 - 2.0 * f);
+    return mix(mix(hash(i + vec2(0.0, 0.0)), hash(i + vec2(1.0, 0.0)), u.x),
+               mix(hash(i + vec2(0.0, 1.0)), hash(i + vec2(1.0, 1.0)), u.x), u.y);
+  }
+
+  // Symmetric cubic easing profile
+  float easeInOutCubic(float x) {
+    return x < 0.5 ? 4.0 * x * x * x : 1.0 - pow(-2.0 * x + 2.0, 3.0) / 2.0;
+  }
+
+  void main() {
+    vec2 uv = v_uv;
+    vec4 outColor = vec4(0.0);
+    float t = u_progress;
+
+    // MODE 0: Horizontal band offset
+    if (u_mode == 0) {
+      float bands = 6.0;
+      float bandIdx = floor(uv.y * bands);
+      float dir = mod(bandIdx, 2.0) == 0.0 ? 1.0 : -1.0;
+      
+      // Cascading stagger per horizontal band
+      float delay = (bandIdx / bands) * 0.4;
+      float localT = clamp((t - delay) / 0.6, 0.0, 1.0);
+      float shift = (1.0 - easeInOutCubic(localT)) * dir * 0.8;
+      
+      vec2 sampleUv = vec2(uv.x + shift, uv.y);
+      float mask = step(0.0, sampleUv.x) * step(sampleUv.x, 1.0);
+      outColor = texture2D(u_tex, sampleUv) * mask;
+    }
+
+    // MODE 1: Polar coordinate warp
+    else if (u_mode == 1) {
+      vec2 center = vec2(0.5, 0.5);
+      vec2 d = uv - center;
+      
+      float angle = atan(d.y, d.x);
+      float radius = length(d);
+      
+      float warpAmp = sin(t * PI);
+      float twistedAngle = angle + sin(radius * 12.0 - t * PI * 2.0) * (0.8 * warpAmp);
+      float twistedRadius = radius * (1.0 + sin(angle * 4.0 + t * PI) * 0.2 * warpAmp);
+      
+      vec2 warpedUv = center + vec2(cos(twistedAngle), sin(twistedAngle)) * twistedRadius;
+      
+      // Interpolate seamlessly into Euclidean planar target
+      vec2 sampleUv = mix(warpedUv, uv, easeInOutCubic(t));
+      
+      // Chromatic dispersion along torque vectors
+      float r = texture2D(u_tex, sampleUv + vec2(0.008, 0.0) * warpAmp).r;
+      float g = texture2D(u_tex, sampleUv).g;
+      float b = texture2D(u_tex, sampleUv - vec2(0.008, 0.0) * warpAmp).b;
+      float a = max(r, max(g, b));
+      outColor = vec4(r, g, b, a);
+    }
+
+    // MODE 2: Noise displacement with thresholded opacity
+    else if (u_mode == 2) {
+      float warpAmp = sin(t * PI);
+      vec2 p = uv * 8.0;
+      vec2 flow = vec2(
+        noise(p + vec2(u_time * 0.4, 0.0)),
+        noise(p + vec2(0.0, u_time * 0.4))
+      ) - 0.5;
+
+      vec2 displacedUv = uv + flow * warpAmp * 0.25;
+      
+      // Threshold burn boundary calculation
+      float maskCutoff = clamp(1.0 - t, 0.0, 1.0);
+      float nVal = noise(uv * 14.0);
+      float alphaCut = step(maskCutoff * 0.85, nVal);
+
+      vec4 tex = texture2D(u_tex, displacedUv);
+      vec3 burnEdge = vec3(1.0, 0.3, 0.05) * step(abs(nVal - maskCutoff * 0.85), 0.04) * warpAmp * 3.0;
+      
+      outColor = vec4(tex.rgb * alphaCut + burnEdge, tex.a * alphaCut);
+    }
+
+    // MODE 3: Row-based horizontal displacement and color offset
+    else if (u_mode == 3) {
+      float vel = sin(t * PI);
+      float scanOffset = sin(uv.y * 32.0 + u_time * 8.0) * 0.04 * vel;
+      float shear = (uv.y - 0.5) * vel * 0.6;
+      
+      vec2 baseUv = vec2(uv.x + shear + scanOffset, uv.y);
+      
+      // Heavy directional spectral smear
+      float spread = 0.035 * vel;
+      float r = texture2D(u_tex, baseUv + vec2(spread, 0.0)).r;
+      float g = texture2D(u_tex, baseUv).g;
+      float b = texture2D(u_tex, baseUv - vec2(spread, 0.0)).b;
+      
+      outColor = vec4(r, g, b, max(r, max(g, b)));
+    }
+
+    // MODE 4: Uniform scale and color inversion
+    else if (u_mode == 4) {
+      float scale = 1.0 + pow(1.0 - t, 4.0) * 3.5;
+      vec2 center = vec2(0.5, 0.5);
+      vec2 scaledUv = (uv - center) / scale + center;
+
+      // Chromatic separation bursts under high-acceleration descent
+      float burst = (scale - 1.0) * 0.05;
+      float r = texture2D(u_tex, (uv - center) / (scale + burst) + center).r;
+      float g = texture2D(u_tex, scaledUv).g;
+      float b = texture2D(u_tex, (uv - center) / (scale - burst) + center).b;
+      
+      vec4 base = vec4(r, g, b, max(r, max(g, b)));
+      
+      // Invert color buffer during deceleration shock
+      float impactFlash = step(0.92, t) * step(t, 0.98);
+      outColor = mix(base, vec4(vec3(1.0) - base.rgb, base.a), impactFlash);
+    }
+
+    gl_FragColor = outColor;
+  }
+</script>
+
+<script>
+(() => {
+  const glCanvas = document.getElementById('viewport');
+  const gl = glCanvas.getContext('webgl', { alpha: false, antialias: true, depth: false });
+  if (!gl) return alert('WebGL initialization failed.');
+
+  // High-DPI Offscreen Typographic Rasterizer
+  const textCanvas = document.createElement('canvas');
+  const tx = textCanvas.getContext('2d');
+  const TEX_W = 2048;
+  const TEX_H = 1024;
+  textCanvas.width = TEX_W;
+  textCanvas.height = TEX_H;
+
+  function rasterizeType(text) {
+    tx.clearRect(0, 0, TEX_W, TEX_H);
+    tx.fillStyle = '#0a0a0a';
+    tx.fillRect(0, 0, TEX_W, TEX_H);
+
+    tx.textAlign = 'center';
+    tx.textBaseline = 'middle';
+    tx.font = '900 140px "Impact", "Arial Black", sans-serif';
+    tx.fillStyle = '#ffffff';
+    tx.letterSpacing = "4px";
+
+    // Primary centered baseline layout
+    tx.fillText(text, TEX_W / 2, TEX_H / 2);
+
+    // Context subtext lockup
+    tx.font = '700 24px ui-monospace, monospace';
+    tx.fillStyle = '#666666';
+    tx.letterSpacing = "12px";
+    tx.fillText("DYNAMIC SHADER INTERPOLATION", TEX_W / 2, TEX_H / 2 + 120);
+
+    // Bind and upload raster buffer directly to GPU memory
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, textCanvas);
+  }
+
+  // Shader compilation boilerplate
+  function createShader(gl, type, source) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, source);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
+      console.error(gl.getShaderInfoLog(s));
+      gl.deleteShader(s);
+      return null;
+    }
+    return s;
+  }
+
+  const vsSource = document.getElementById('vs').text;
+  const fsSource = document.getElementById('fs').text;
+  const prog = gl.createProgram();
+  gl.attachShader(prog, createShader(gl, gl.VERTEX_SHADER, vsSource));
+  gl.attachShader(prog, createShader(gl, gl.FRAGMENT_SHADER, fsSource));
+  gl.linkProgram(prog);
+  gl.useProgram(prog);
+
+  // Full-viewport rendering quad
+  const quadBuf = gl.createBuffer();
+  gl.bindBuffer(gl.ARRAY_BUFFER, quadBuf);
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([
+    -1, -1,  1, -1, -1,  1,
+    -1,  1,  1, -1,  1,  1
+  ]), gl.STATIC_DRAW);
+
+  const aPos = gl.getAttribLocation(prog, 'a_pos');
+  gl.enableVertexAttribArray(aPos);
+  gl.vertexAttribPointer(aPos, 2, gl.FLOAT, false, 0, 0);
+
+  // Allocate GPU texture unit
+  const texture = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, texture);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+  gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+
+  // Uniform binding lookups
+  const uRes = gl.getUniformLocation(prog, 'u_res');
+  const uTime = gl.getUniformLocation(prog, 'u_time');
+  const uProgress = gl.getUniformLocation(prog, 'u_progress');
+  const uMode = gl.getUniformLocation(prog, 'u_mode');
+
+  // Application state model
+  let currentMode = 0;
+  let progress = 0.0;
+  let isAuto = true;
+  let textPayload = document.getElementById('str-input').value;
+
+  function resize() {
+    const dpr = Math.min(window.devicePixelRatio || 1, 2);
+    const w = window.innerWidth;
+    const h = window.innerHeight;
+    if (glCanvas.width !== w * dpr || glCanvas.height !== h * dpr) {
+      glCanvas.width = w * dpr;
+      glCanvas.height = h * dpr;
+      gl.viewport(0, 0, glCanvas.width, glCanvas.height);
+      gl.uniform2f(uRes, glCanvas.width, glCanvas.height);
+    }
+  }
+  window.addEventListener('resize', resize);
+  resize();
+  rasterizeType(textPayload);
+
+  // UI Event Bindings
+  document.getElementById('str-input').addEventListener('input', (e) => {
+    rasterizeType(e.target.value);
+  });
+
+  const modeButtons = document.querySelectorAll('#modes button');
+  modeButtons.forEach(btn => {
+    btn.addEventListener('click', () => {
+      modeButtons.forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      currentMode = parseInt(btn.getAttribute('data-mode'));
+      if (!isAuto) progress = 0.0;
+    });
+  });
+
+  const scrub = document.getElementById('phase-scrub');
+  scrub.addEventListener('input', (e) => {
+    isAuto = false;
+    document.getElementById('auto-btn').classList.remove('active');
+    progress = parseFloat(e.target.value);
+  });
+
+  const autoBtn = document.getElementById('auto-btn');
+  autoBtn.addEventListener('click', () => {
+    isAuto = !isAuto;
+    autoBtn.classList.toggle('active', isAuto);
+  });
+
+  // Render loop execution
+  let startTime = performance.now();
+  let lastFrameTime = startTime;
+  let frameCount = 0;
+  const perfDisp = document.getElementById('perf');
+
+  function render(now) {
+    const delta = (now - lastFrameTime) * 0.001;
+    lastFrameTime = now;
+    frameCount++;
+
+    if (frameCount % 30 === 0) {
+      perfDisp.innerText = `${Math.round(1 / delta)} FPS | WEBGL INTEROP`;
+    }
+
+    const elapsed = (now - startTime) * 0.001;
+
+    if (isAuto) {
+      // Periodic triangular oscillation with dynamic settling delay
+      const period = 2.4;
+      const phase = (elapsed % period) / period;
+      // Exponential ping-pong profile
+      progress = 0.5 - 0.5 * Math.cos(phase * Math.PI * 2.0);
+      scrub.value = progress.toFixed(4);
+    }
+
+    gl.uniform1f(uTime, elapsed);
+    gl.uniform1f(uProgress, progress);
+    gl.uniform1i(uMode, currentMode);
+
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    requestAnimationFrame(render);
+  }
+
+  requestAnimationFrame(render);
+})();
+</script>
+</body>
+</html>

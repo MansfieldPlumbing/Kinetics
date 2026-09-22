@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Balance Mirror Operation</title><style>html,body{margin:0;height:100%;background:#07090e;display:grid;place-items:center;overflow:hidden}canvas{width:min(100vw,960px);height:auto;box-shadow:0 30px 90px #000}</style></head><body><canvas id="c" width="960" height="540"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d'),W=c.width,H=c.height,CX=W/2;
+const clamp=t=>Math.max(0,Math.min(1,t)),out=t=>1-Math.pow(1-t,3),io=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+const D=8.4;
+function txt(s,px,py,size,alpha=1,color='#eef5ff',blur=0){x.save();x.globalAlpha=alpha;x.font=`900 ${size}px Consolas,monospace`;x.textAlign='center';x.textBaseline='middle';x.fillStyle=color;x.shadowColor=color;x.shadowBlur=blur;x.fillText(s,px,py);x.restore()}
+function draw(){requestAnimationFrame(draw);let t=(performance.now()/1000)%D;x.fillStyle='#07090e';x.fillRect(0,0,W,H);let g=x.createRadialGradient(CX,260,20,CX,260,470);g.addColorStop(0,'rgba(36,62,110,.22)');g.addColorStop(1,'rgba(0,0,0,.8)');x.fillStyle=g;x.fillRect(0,0,W,H);
+const build=clamp(t/1.1),shot=clamp((t-1.55)/1.15),impact=clamp((t-2.5)/.5),settle=clamp((t-3.0)/1.0),second=clamp((t-4.6)/1.1),exit=clamp((t-7.1)/.9);
+let recoil=Math.sin(impact*Math.PI)*18*(1-settle*.7);let leftX=310-recoil,rightX=650+recoil;
+// fixed equality axis: the rule, not a see-saw
+x.save();x.globalAlpha=.25+.5*out(build);x.strokeStyle='#7ea8d8';x.lineWidth=2;x.beginPath();x.moveTo(CX,88);x.lineTo(CX,420);x.stroke();x.restore();txt('=',CX,258,94,out(build),'#ffffff',24);
+// initial equation halves
+let a=out(build)*(1-exit);txt('X + 4',leftX,250,56,a,'#eaf3ff',10);txt('10',rightX,250,56,a,'#eaf3ff',10);
+// operation token flies across once then splits precisely at =
+let px=-120+io(shot)*600; if(shot>0&&shot<1){txt('−4',px,155,44,1,'#53e0ff',28);for(let k=1;k<7;k++)txt('−4',px-k*34,155,44,.12*(7-k)/6,'#53e0ff',10)}
+let split=clamp((shot-.72)/.28);if(split>0){let e=out(split);let lx=CX-(CX-300)*e,rx=CX+(650-CX)*e;txt('−4',lx,155,42,(1-exit),'#53e0ff',18);txt('−4',rx,155,42,(1-exit),'#53e0ff',18);}
+// impact bars communicate SAME OPERATION / BOTH SIDES
+if(impact>0){let e=out(impact),aa=(1-settle*.7)*(1-exit);x.save();x.globalAlpha=aa;x.strokeStyle='#53e0ff';x.lineWidth=4;x.beginPath();x.moveTo(210,310);x.lineTo(410,310);x.moveTo(550,310);x.lineTo(750,310);x.stroke();x.restore();txt('− 4',310,345,34,aa,'#53e0ff',14);txt('− 4',650,345,34,aa,'#53e0ff',14);}
+// semantic cancellation, then compact to X=6
+let cancel=settle;if(cancel>0){let e=out(cancel);x.save();x.globalAlpha=e*(1-exit);x.strokeStyle='#ffcf63';x.lineWidth=5;x.beginPath();x.moveTo(322,221);x.lineTo(385,280);x.moveTo(385,221);x.lineTo(322,280);x.stroke();x.restore();txt('X',310,250,56,e*(1-exit),'#f4f8ff',12);txt('6',650,250,56,e*(1-exit),'#f4f8ff',12);}
+// second identical action as proof of rule, using ÷2
+if(second>0){let e=io(second),y=410;let l=-100+e*410,r=W+100-e*410;txt('÷2',l,y,38,(1-exit),'#ffcf63',18);txt('÷2',r,y,38,(1-exit),'#ffcf63',18);}
+const capAlpha=clamp((t-3.65)/.45)*(1-exit);x.save();x.globalAlpha=capAlpha;x.font='800 24px Arial,sans-serif';x.textAlign='center';x.fillStyle='#b9c8dc';x.fillText('WHATEVER HITS THE LEFT  •  HITS THE RIGHT',CX,492);x.restore();}
+draw();
+</script></body></html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 2D Three-Phrase Position, Scale, and Opacity Sequence</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0b0c10;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Arial Black', sans-serif;
+        }
+        canvas {
+            background-color: #0e111b;
+            border: 1px solid #1f2833;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="960" height="540"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let frame = 0;
+        const cycle = 180;
+
+        function cubicOut(t) {
+            return 1 - Math.pow(1 - t, 3);
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+            const f = frame % cycle;
+
+            // Phase 1 (0..60): Word 1 ("ANIMATING") enters center
+            // Phase 2 (60..120): Word 1 slides LEFT, Word 2 ("TEXT") enters RIGHT
+            // Phase 3 (120..180): Both move up while phrase 3 scales in below them
+
+            let w1X = 0, w1Y = 0, w1Scale = 1.0, w1Alpha = 1.0;
+            let w2X = 0, w2Y = 0, w2Scale = 0.0, w2Alpha = 0.0;
+            let w3X = 0, w3Y = 100, w3Scale = 0.0, w3Alpha = 0.0;
+
+            if (f < 60) {
+                const t = Math.min(f / 30, 1.0);
+                w1Scale = cubicOut(t);
+                w1Alpha = t;
+            } else if (f < 120) {
+                const t = Math.min((f - 60) / 30, 1.0);
+                const eased = cubicOut(t);
+                w1X = -eased * 180;
+                w2X = 180;
+                w2Scale = eased;
+                w2Alpha = t;
+            } else {
+                const t = Math.min((f - 120) / 30, 1.0);
+                const eased = cubicOut(t);
+                w1X = -180;
+                w1Y = -eased * 90;
+                w2X = 180;
+                w2Y = -eased * 90;
+                w2Scale = 1.0;
+                w2Alpha = 1.0;
+
+                w3Scale = eased * 1.5;
+                w3Alpha = t;
+                w3Y = 60;
+            }
+
+            ctx.save();
+            ctx.translate(cx, cy);
+
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Draw Word 1
+            if (w1Alpha > 0) {
+                ctx.save();
+                ctx.translate(w1X, w1Y);
+                ctx.scale(w1Scale, w1Scale);
+                ctx.font = '900 48px sans-serif';
+                ctx.fillStyle = '#66fcf1';
+                ctx.globalAlpha = w1Alpha;
+                ctx.fillText("ANIMATING", 0, 0);
+                ctx.restore();
+            }
+
+            // Draw Word 2
+            if (w2Alpha > 0) {
+                ctx.save();
+                ctx.translate(w2X, w2Y);
+                ctx.scale(w2Scale, w2Scale);
+                ctx.font = '900 48px sans-serif';
+                ctx.fillStyle = '#ffffff';
+                ctx.globalAlpha = w2Alpha;
+                ctx.fillText("TEXT", 0, 0);
+                ctx.restore();
+            }
+
+            // Draw Word 3
+            if (w3Alpha > 0) {
+                ctx.save();
+                ctx.translate(w3X, w3Y);
+                ctx.scale(w3Scale, w3Scale);
+                ctx.font = '900 58px sans-serif';
+                ctx.fillStyle = '#ff3366';
+                ctx.globalAlpha = w3Alpha;
+                ctx.fillText("LIKE THIS!", 0, 0);
+                ctx.restore();
+            }
+
+            ctx.restore();
+
+            frame++;
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

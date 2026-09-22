@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>3D Card Flip Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0c12;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #14171f; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * 3D Card Flip Engine
+ * Each character occupies a fixed monospace slot. On transition, letters
+ * flip end-over-end (simulated Y-axis rotation via horizontal scale +
+ * shading) with a per-letter stagger, swapping to the next phrase's
+ * character at the edge-on point of the flip.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const rawPhrases = ["CARD FLIP", "PIVOT POINT", "ROTATE IN", "NEW FACE"];
+const maxLen = Math.max(...rawPhrases.map(p => p.length));
+
+function centerPad(s) {
+  const total = maxLen - s.length;
+  const left = Math.floor(total / 2);
+  const right = total - left;
+  return ' '.repeat(left) + s + ' '.repeat(right);
+}
+const phrases = rawPhrases.map(centerPad);
+
+let idx = 0;
+let state = 'hold';
+let stateFrame = 0;
+const HOLD_DUR = 70, LETTER_FLIP_DUR = 26, STAGGER = 4;
+const FLIP_TOTAL = LETTER_FLIP_DUR + maxLen * STAGGER;
+
+const CHAR_W = 50;
+
+function draw() {
+  ctx.fillStyle = '#0a0c12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  const cur = phrases[idx];
+  const next = phrases[(idx + 1) % phrases.length];
+  const totalW = maxLen * CHAR_W;
+  const startX = canvas.width / 2 - totalW / 2 + CHAR_W / 2;
+  const cy = canvas.height / 2;
+
+  if (state === 'hold' && stateFrame >= HOLD_DUR) { state = 'flip'; stateFrame = 0; }
+  if (state === 'flip' && stateFrame >= FLIP_TOTAL) {
+    idx = (idx + 1) % phrases.length; state = 'hold'; stateFrame = 0;
+  }
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '900 44px "Consolas", monospace';
+
+  for (let i = 0; i < maxLen; i++) {
+    const x = startX + i * CHAR_W;
+    let charToShow = cur[i];
+    let scaleX = 1;
+    let brightness = 1;
+
+    if (state === 'flip') {
+      const localFrame = stateFrame - i * STAGGER;
+      const t = Math.max(0, Math.min(1, localFrame / LETTER_FLIP_DUR));
+      const angle = t * Math.PI;
+      scaleX = Math.abs(Math.cos(angle));
+      brightness = 0.35 + 0.65 * scaleX;
+      charToShow = (angle < Math.PI / 2) ? cur[i] : next[i];
+      if (localFrame <= 0) { charToShow = cur[i]; scaleX = 1; brightness = 1; }
+      if (localFrame >= LETTER_FLIP_DUR) { charToShow = next[i]; scaleX = 1; brightness = 1; }
+    }
+
+    if (charToShow === ' ') continue;
+
+    ctx.save();
+    ctx.translate(x, cy);
+    ctx.scale(scaleX, 1);
+    const g = Math.min(255, Math.floor(220 * brightness + 35));
+    ctx.fillStyle = `rgb(${g},${Math.min(255, Math.floor(g * 0.95))},${Math.min(255, Math.floor(g * 1.05))})`;
+    ctx.shadowColor = 'rgba(120,180,255,0.5)';
+    ctx.shadowBlur = 8 * brightness;
+    ctx.fillText(charToShow, 0, 0);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 2D Word Layout with Camera Position, Scale, and Rotation</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0b0c10;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Impact', 'Arial Black', sans-serif;
+        }
+        canvas {
+            background-color: #0e111b;
+            border: 1px solid #1f2833;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="960" height="540"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        // Spatial World Map (All words positioned on a single 2D plane)
+        const Cues = [
+            { word: "MOTION",     x: 0,    y: 0,   scale: 3.5, rot: 0,            color: '#66fcf1' },
+            { word: "TYPOGRAPHY", x: 600,  y: 0,   scale: 2.8, rot: 0,            color: '#ffffff' },
+            { word: "IS",         x: 600,  y: 200, scale: 1.2, rot: 0,            color: '#94a3b8' },
+            { word: "REALLY",     x: 200,  y: 380, scale: 2.2, rot: Math.PI / 2,  color: '#3b82f6' },
+            { word: "STUNNING",   x: 450,  y: 750, scale: 4.5, rot: 0,            color: '#ff3366' }
+        ];
+
+        let frame = 0;
+        const segmentFrames = 60; // 1 second per word transition
+        const totalDuration = Cues.length * segmentFrames;
+
+        function cubicEase(t) {
+            return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2;
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const loopFrame = frame % totalDuration;
+            const activeIndex = Math.floor(loopFrame / segmentFrames);
+            const nextIndex = (activeIndex + 1) % Cues.length;
+            const progress = (loopFrame % segmentFrames) / segmentFrames;
+            const eased = cubicEase(progress);
+
+            const from = Cues[activeIndex];
+            const to = Cues[nextIndex];
+
+            // Lerp camera target
+            const camX = from.x + (to.x - from.x) * eased;
+            const camY = from.y + (to.y - from.y) * eased;
+            const camScale = from.scale + (to.scale - from.scale) * eased;
+            const camRot = from.rot + (to.rot - from.rot) * eased;
+
+            ctx.save();
+            // Center camera in viewport
+            ctx.translate(canvas.width / 2, canvas.height / 2);
+            ctx.scale(1.0 / camScale, 1.0 / camScale);
+            ctx.rotate(-camRot);
+            ctx.translate(-camX, -camY);
+
+            // Render all words in world space
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            Cues.forEach((cue, idx) => {
+                ctx.save();
+                ctx.translate(cue.x, cue.y);
+                ctx.rotate(cue.rot);
+                ctx.font = `900 ${cue.scale * 36}px Impact, sans-serif`;
+                
+                const isFocal = (idx === activeIndex && progress < 0.5) || (idx === nextIndex && progress >= 0.5);
+                ctx.fillStyle = isFocal ? cue.color : 'rgba(255, 255, 255, 0.2)';
+                ctx.fillText(cue.word, 0, 0);
+                ctx.restore();
+            });
+
+            ctx.restore();
+
+            frame++;
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

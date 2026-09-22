@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 2D Halftone Caption Box with Offset Shadow</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0b0c10;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Impact', 'Arial Black', sans-serif;
+        }
+        canvas {
+            background-color: #050505;
+            border: 1px solid #1f2833;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="960" height="540"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        let frame = 0;
+
+        function drawBenDayDots(w, h, dotRadius, spacing) {
+            ctx.fillStyle = '#ffaa00';
+            for (let y = -h/2; y < h/2; y += spacing) {
+                for (let x = -w/2; x < w/2; x += spacing) {
+                    ctx.beginPath();
+                    ctx.arc(x, y, dotRadius, 0, Math.PI * 2);
+                    ctx.fill();
+                }
+            }
+        }
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const cx = canvas.width / 2;
+            const cy = canvas.height / 2;
+
+            const boxW = 540;
+            const boxH = 160;
+            const tilt = -0.06 + Math.sin(frame * 0.03) * 0.015; // Dynamic comic tilt
+
+            ctx.save();
+            ctx.translate(cx, cy);
+            ctx.rotate(tilt);
+
+            // 1. Hard Offset Comic Drop Shadow (Zero blur, 100% black)
+            ctx.fillStyle = '#000000';
+            ctx.fillRect(-boxW / 2 + 10, -boxH / 2 + 10, boxW, boxH);
+
+            // 2. Yellow panel fill
+            ctx.fillStyle = '#ffcc00';
+            ctx.fillRect(-boxW / 2, -boxH / 2, boxW, boxH);
+
+            // 3. Ben-Day Halftone Dot Overlay (Clipped to box)
+            ctx.save();
+            ctx.beginPath();
+            ctx.rect(-boxW / 2, -boxH / 2, boxW, boxH);
+            ctx.clip();
+            drawBenDayDots(boxW, boxH, 2.5, 12);
+            ctx.restore();
+
+            // 4. Heavy Inked Border
+            ctx.strokeStyle = '#000000';
+            ctx.lineWidth = 6;
+            ctx.strokeRect(-boxW / 2, -boxH / 2, boxW, boxH);
+
+            // 5. Inked Comic Caption Text
+            ctx.font = '900 48px Impact, Arial Black, sans-serif';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillStyle = '#000000';
+            ctx.fillText("MEANWHILE IN QUEENS...", 0, 0);
+
+            ctx.restore();
+
+            frame++;
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

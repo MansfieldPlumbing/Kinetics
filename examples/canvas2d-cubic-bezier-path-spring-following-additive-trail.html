@@ -1,0 +1,365 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Canvas 2D Cubic Bezier Path Spring Following with Additive Trail</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #030806;
+    color: #4ef;
+    font-family: monospace;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 100vh;
+    overflow: hidden;
+  }
+  #container {
+    position: relative;
+    border: 1px solid #143026;
+    box-shadow: 0 0 40px rgba(0, 255, 170, 0.15), inset 0 0 20px rgba(0,0,0,0.8);
+    border-radius: 4px;
+    background: #020504;
+  }
+  canvas { display: block; }
+  .hud {
+    position: absolute;
+    bottom: 12px;
+    left: 14px;
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    color: #2bd99f;
+    pointer-events: none;
+    opacity: 0.8;
+  }
+  .controls {
+    margin-top: 14px;
+    display: flex;
+    gap: 16px;
+    font-size: 12px;
+  }
+  button {
+    background: #0a1f18;
+    border: 1px solid #2bd99f;
+    color: #2bd99f;
+    padding: 6px 14px;
+    font-family: monospace;
+    cursor: pointer;
+    text-transform: uppercase;
+    transition: all 0.15s ease;
+  }
+  button:hover {
+    background: #2bd99f;
+    color: #020504;
+    box-shadow: 0 0 10px #2bd99f;
+  }
+</style>
+</head>
+<body>
+
+<div id="container">
+  <canvas id="laserCanvas" width="800" height="550"></canvas>
+  <div class="hud" id="hud">GALVO STATUS: ACTIVE</div>
+</div>
+
+<div class="controls">
+  <button id="btnReplay">Restart Scan</button>
+  <button id="btnToggleBlanking">Toggle Blanking Trails</button>
+</div>
+
+<script>
+/**
+ * Cubic Bezier path sampling, spring following, and additive trail rendering
+ *
+ * Core architecture:
+ *  1. Arc-length reparameterization of piecewise Bezier curves into uniform sample points.
+ *  2. 2nd-order physical galvo scanner tracking with inertia and overshoot.
+ *  3. Dynamic beam emission state machine (DRAW vs BLANKING SLEW).
+ *  4. Phosphor persistence decay + multi-pass additive bloom compositing.
+ */
+
+const canvas = document.getElementById('laserCanvas');
+const ctx = canvas.getContext('2d');
+const hud = document.getElementById('hud');
+
+// --- 1. SKELETAL VECTOR DATA (Normalized [0, 1] paths) ---
+// Multi-contour vector glyph with discontinuous strokes to demonstrate galvo blanking jumps.
+const RAW_GLYPH = [
+  // Contour 1: Outer Tech Ring (Arcs via Beziers)
+  [
+    { cmd: 'M', x: 0.5, y: 0.12 },
+    { cmd: 'C', cp1x: 0.71, cp1y: 0.12, cp2x: 0.88, cp2y: 0.29, x: 0.88, y: 0.5 },
+    { cmd: 'C', cp1x: 0.88, cp1y: 0.71, cp2x: 0.71, cp2y: 0.88, x: 0.5, y: 0.88 },
+    { cmd: 'C', cp1x: 0.29, cp1y: 0.88, cp2x: 0.12, cp2y: 0.71, x: 0.12, y: 0.5 },
+    { cmd: 'C', cp1x: 0.12, cp1y: 0.29, cp2x: 0.29, cp2y: 0.12, x: 0.5, y: 0.12 }
+  ],
+  // Contour 2: Central closed and crossing path
+  [
+    { cmd: 'M', x: 0.28, y: 0.35 },
+    { cmd: 'C', cp1x: 0.45, cp1y: 0.15, cp2x: 0.55, cp2y: 0.85, x: 0.72, y: 0.65 },
+    { cmd: 'C', cp1x: 0.85, cp1y: 0.50, cp2x: 0.65, cp2y: 0.25, x: 0.50, y: 0.25 },
+    { cmd: 'C', cp1x: 0.35, cp1y: 0.25, cp2x: 0.15, cp2y: 0.50, x: 0.28, y: 0.35 }
+  ],
+  // Contour 3: Horizontal Reticle Intersect
+  [
+    { cmd: 'M', x: 0.05, y: 0.5 },
+    { cmd: 'L', x: 0.22, y: 0.5 }
+  ],
+  [
+    { cmd: 'M', x: 0.78, y: 0.5 },
+    { cmd: 'L', x: 0.95, y: 0.5 }
+  ],
+  // Contour 4: Core Diamond
+  [
+    { cmd: 'M', x: 0.5, y: 0.38 },
+    { cmd: 'L', x: 0.62, y: 0.5 },
+    { cmd: 'L', x: 0.5, y: 0.62 },
+    { cmd: 'L', x: 0.38, y: 0.5 },
+    { cmd: 'L', x: 0.5, y: 0.38 }
+  ]
+];
+
+// --- 2. ARC-LENGTH REPARAMETERIZATION ---
+class SkeletalPath {
+  constructor(rawCommands, width, height, padding = 40) {
+    this.scaleX = width - padding * 2;
+    this.scaleY = height - padding * 2;
+    this.offsetX = padding;
+    this.offsetY = padding;
+    this.strokes = this.process(rawCommands);
+  }
+
+  process(contours) {
+    return contours.map(contour => {
+      const densePoints = [];
+      let cur = { x: 0, y: 0 };
+
+      for (const seg of contour) {
+        if (seg.cmd === 'M') {
+          cur = this.toScreen(seg.x, seg.y);
+          densePoints.push({ ...cur });
+        } else if (seg.cmd === 'L') {
+          const target = this.toScreen(seg.x, seg.y);
+          this.subdivideLine(cur, target, densePoints, 2.0); // 2px step
+          cur = target;
+        } else if (seg.cmd === 'C') {
+          const p1 = this.toScreen(seg.cp1x, seg.cp1y);
+          const p2 = this.toScreen(seg.cp2x, seg.cp2y);
+          const p3 = this.toScreen(seg.x, seg.y);
+          this.subdivideCubic(cur, p1, p2, p3, densePoints, 2.0);
+          cur = p3;
+        }
+      }
+      return densePoints;
+    });
+  }
+
+  toScreen(nx, ny) {
+    return {
+      x: this.offsetX + nx * this.scaleX,
+      y: this.offsetY + ny * this.scaleY
+    };
+  }
+
+  subdivideLine(p0, p1, out, step) {
+    const dx = p1.x - p0.x;
+    const dy = p1.y - p0.y;
+    const dist = Math.hypot(dx, dy);
+    const n = Math.max(1, Math.floor(dist / step));
+    for (let i = 1; i <= n; i++) {
+      const t = i / n;
+      out.push({ x: p0.x + dx * t, y: p0.y + dy * t });
+    }
+  }
+
+  subdivideCubic(p0, p1, p2, p3, out, step) {
+    // Flatten cubic segment via chord error or fixed arc integration
+    const approxDist = Math.hypot(p1.x - p0.x, p1.y - p0.y) +
+                       Math.hypot(p2.x - p1.x, p2.y - p1.y) +
+                       Math.hypot(p3.x - p2.x, p3.y - p2.y);
+    const steps = Math.max(8, Math.floor(approxDist / step));
+    for (let i = 1; i <= steps; i++) {
+      const t = i / steps;
+      const it = 1 - t;
+      const x = it*it*it*p0.x + 3*it*it*t*p1.x + 3*it*t*t*p2.x + t*t*t*p3.x;
+      const y = it*it*it*p0.y + 3*it*it*t*p1.y + 3*it*t*t*p2.y + t*t*t*p3.y;
+      out.push({ x, y });
+    }
+  }
+}
+
+// --- 3. GALVANOMETER CONTROLLER (Simulation of mirrors & laser driver) ---
+class GalvoScanner {
+  constructor(skeletalPath) {
+    this.path = skeletalPath;
+    this.showBlanking = true;
+    this.reset();
+  }
+
+  reset() {
+    this.contourIdx = 0;
+    this.pointIdx = 0;
+    this.pos = { x: 0, y: 0 };
+    this.vel = { x: 0, y: 0 };
+    
+    // Set initial position to first stroke start point
+    if (this.path.strokes.length > 0 && this.path.strokes[0].length > 0) {
+      this.pos = { ...this.path.strokes[0][0] };
+    }
+
+    this.state = 'DRAW'; // 'DRAW' | 'BLANKING_SLEW' | 'COMPLETE'
+    this.dwell = 0;
+    this.laserIntensity = 1.0;
+  }
+
+  update() {
+    if (this.state === 'COMPLETE') return;
+
+    const stroke = this.path.strokes[this.contourIdx];
+
+    if (this.state === 'DRAW') {
+      this.laserIntensity = 1.0;
+      const target = stroke[this.pointIdx];
+      
+      // Galvo spring dynamics (mass-spring-damper response)
+      this.trackTarget(target, 0.48, 0.65);
+
+      // Advance write-on index (linear speed parameter)
+      this.pointIdx += 2; 
+      if (this.pointIdx >= stroke.length) {
+        this.contourIdx++;
+        if (this.contourIdx >= this.path.strokes.length) {
+          this.state = 'COMPLETE';
+          this.laserIntensity = 0.0;
+          return;
+        }
+        // Switch to non-emitting galvo jump
+        this.state = 'BLANKING_SLEW';
+        this.pointIdx = 0;
+      }
+    } else if (this.state === 'BLANKING_SLEW') {
+      // Galvo mirrors slewing rapidly across dead space; extinction ratio leak
+      this.laserIntensity = this.showBlanking ? 0.04 : 0.0;
+      const target = this.path.strokes[this.contourIdx][0];
+      
+      // Higher slew speed, slight overshoot
+      this.trackTarget(target, 0.35, 0.72);
+
+      const d = Math.hypot(target.x - this.pos.x, target.y - this.pos.y);
+      if (d < 3.0) {
+        this.state = 'DRAW';
+      }
+    }
+  }
+
+  trackTarget(target, stiffness, damping) {
+    const fx = (target.x - this.pos.x) * stiffness;
+    const fy = (target.y - this.pos.y) * stiffness;
+    this.vel.x = (this.vel.x + fx) * damping;
+    this.vel.y = (this.vel.y + fy) * damping;
+    this.pos.x += this.vel.x;
+    this.pos.y += this.vel.y;
+  }
+}
+
+// --- 4. RENDER PIPELINE ---
+const skeletal = new SkeletalPath(RAW_GLYPH, canvas.width, canvas.height);
+const galvo = new GalvoScanner(skeletal);
+
+let prevPos = { ...galvo.pos };
+
+function render() {
+  // Phosphor persistence decay: overlay translucent black instead of full clear.
+  // Creates realistic decay tail behind the scan head.
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = 'rgba(2, 6, 5, 0.08)';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // Sub-step the physics loop per frame to simulate high-frequency galvo DAC rate
+  const substeps = 4;
+  for (let s = 0; s < substeps; s++) {
+    prevPos = { ...galvo.pos };
+    galvo.update();
+
+    if (galvo.state === 'COMPLETE') break;
+
+    // Use additive blending for HDR photon accumulation
+    ctx.globalCompositeOperation = 'lighter';
+
+    const p0 = prevPos;
+    const p1 = galvo.pos;
+    const intensity = galvo.laserIntensity;
+
+    if (intensity > 0) {
+      // Multi-pass bloom architecture:
+      // Pass 1: Outer scattering / atmospheric halo (Wide, low alpha)
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineWidth = 9;
+      ctx.strokeStyle = `rgba(0, 255, 140, ${0.04 * intensity})`;
+      ctx.stroke();
+
+      // Pass 2: Phosphor glow excitation
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineWidth = 3.2;
+      ctx.strokeStyle = `rgba(30, 255, 190, ${0.25 * intensity})`;
+      ctx.stroke();
+
+      // Pass 3: Core laser filament (Intense, thin, near-white)
+      ctx.beginPath();
+      ctx.moveTo(p0.x, p0.y);
+      ctx.lineTo(p1.x, p1.y);
+      ctx.lineWidth = 1.0;
+      ctx.strokeStyle = `rgba(230, 255, 245, ${0.9 * intensity})`;
+      ctx.stroke();
+    }
+  }
+
+  // Active Laser Spot / Emitter Flare
+  if (galvo.state !== 'COMPLETE') {
+    ctx.globalCompositeOperation = 'lighter';
+    const spot = galvo.pos;
+
+    // Radial beam emission halo
+    const grad = ctx.createRadialGradient(spot.x, spot.y, 0, spot.x, spot.y, 14);
+    grad.addColorStop(0.0, 'rgba(255, 255, 255, 1.0)');
+    grad.addColorStop(0.2, 'rgba(100, 255, 200, 0.8)');
+    grad.addColorStop(0.6, 'rgba(0, 255, 150, 0.15)');
+    grad.addColorStop(1.0, 'rgba(0, 0, 0, 0)');
+
+    ctx.fillStyle = grad;
+    ctx.beginPath();
+    ctx.arc(spot.x, spot.y, 14, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Telemetry readout
+  hud.textContent = `GALVO STATE: ${galvo.state} | CONTOUR: ${galvo.contourIdx + 1}/${skeletal.strokes.length} | INTENSITY: ${(galvo.laserIntensity * 100).toFixed(0)}%`;
+
+  requestAnimationFrame(render);
+}
+
+// Controls
+document.getElementById('btnReplay').onclick = () => {
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.fillStyle = '#020504';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  galvo.reset();
+};
+
+document.getElementById('btnToggleBlanking').onclick = () => {
+  galvo.showBlanking = !galvo.showBlanking;
+};
+
+// Initial boot
+ctx.fillStyle = '#020504';
+ctx.fillRect(0, 0, canvas.width, canvas.height);
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

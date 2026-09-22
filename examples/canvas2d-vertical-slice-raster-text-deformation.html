@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canvas 2D Vertical-Slice Raster Text Deformation</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#050505;font-family:Arial,Helvetica,sans-serif;color:#eee}
+canvas{display:block;width:100vw;height:100vh}
+.ui{position:fixed;left:22px;bottom:20px;display:flex;gap:8px;align-items:center;background:rgba(8,8,8,.72);border:1px solid #2a2a2a;padding:10px 12px;backdrop-filter:blur(10px)}
+input,button{background:#0d0d0d;color:#fff;border:1px solid #444;padding:8px 10px;font:700 12px/1 monospace}
+input{width:210px} button{cursor:pointer}.tag{position:fixed;left:22px;top:20px;font:700 11px/1.4 monospace;letter-spacing:.12em;color:#777}
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div class="tag">ELASTIC TYPE / PRESSURE FIELD<br>MOVE POINTER · CLICK TO STRIKE</div>
+<div class="ui"><input id="text" maxlength="18" value="ELASTIC"><button id="replay">RE-STRIKE</button></div>
+<script>
+const canvas=document.getElementById('c'),ctx=canvas.getContext('2d');
+const buffer=document.createElement('canvas'),bx=buffer.getContext('2d');
+const input=document.getElementById('text');
+let W=0,H=0,dpr=1,wordW=1,wordH=1,fontSize=180;
+let pointer={x:.5,y:.5,active:false}, pulses=[], start=performance.now();
+function resize(){
+  dpr=Math.min(devicePixelRatio||1,2);
+  W=innerWidth;H=innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  rebuild();
+}
+function rebuild(){
+  fontSize=Math.max(84,Math.min(250,W/5.2));
+  buffer.width=Math.max(1200,Math.ceil(W*1.8));
+  buffer.height=Math.max(500,Math.ceil(H*1.1));
+  bx.clearRect(0,0,buffer.width,buffer.height);
+  bx.font=`900 ${fontSize}px Arial Black,Impact,sans-serif`;
+  bx.textAlign='center';bx.textBaseline='middle';
+  wordW=Math.min(buffer.width*.92,bx.measureText(input.value||'ELASTIC').width+80);
+  wordH=fontSize*1.35;
+  bx.fillStyle='#fff';
+  bx.fillText(input.value||'ELASTIC',buffer.width/2,buffer.height/2);
+}
+function strike(x=.18){
+  pulses.push({x, born:performance.now(), amp:1});
+  if(pulses.length>8)pulses.shift();
+}
+function field(nx,now){
+  const t=(now-start)/1000;
+  let y=.10*Math.sin(t*2.0+nx*8), stretch=.08*Math.sin(t*1.5+nx*5), skew=0;
+  const sweep=(t*.16)%1.4-.2;
+  let d=nx-sweep;
+  let g=Math.exp(-(d*d)/.012);
+  stretch+=g*.38*Math.sin(t*4.2);
+  y+=g*.16*Math.sin(t*5.1);
+  skew+=g*(d)*1.4;
+  if(pointer.active){
+    d=nx-pointer.x;
+    g=Math.exp(-(d*d)/.008);
+    stretch+=g*(pointer.y-.5)*.85;
+    y+=g*(pointer.y-.5)*.24;
+    skew+=g*d*2.1;
+  }
+  for(const p of pulses){
+    const age=(now-p.born)/1000;
+    if(age<2.4){
+      const radius=age*.48;
+      const ring=Math.exp(-Math.pow(Math.abs(Math.abs(nx-p.x)-radius),2)/.0018);
+      const decay=Math.exp(-age*1.1);
+      stretch+=ring*decay*.55*Math.cos(age*12);
+      y+=ring*decay*.12*Math.sin(age*14);
+    }
+  }
+  return {y,stretch,skew};
+}
+function draw(now){
+  pulses=pulses.filter(p=>now-p.born<2600);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle='#050505';ctx.fillRect(0,0,W,H);
+  const cx=W/2,cy=H/2, drawW=Math.min(W*.84,wordW), drawH=wordH;
+  const srcX=(buffer.width-wordW)/2, srcY=(buffer.height-wordH)/2;
+  const slices=Math.max(72,Math.floor(drawW/7));
+  const sw=wordW/slices, dw=drawW/slices;
+  // faint tension grid
+  ctx.strokeStyle='rgba(255,255,255,.05)';ctx.lineWidth=1;
+  for(let i=0;i<=10;i++){let x=W*(i/10);ctx.beginPath();ctx.moveTo(x,cy-drawH*.7);ctx.lineTo(x,cy+drawH*.7);ctx.stroke();}
+  function pass(alpha,ghostShift){
+    ctx.save();ctx.globalAlpha=alpha;
+    for(let i=0;i<slices;i++){
+      const nx=i/(slices-1);
+      const f=field(nx,now-ghostShift);
+      const h=drawH*(1+f.stretch);
+      const dx=cx-drawW/2+i*dw + f.skew*22;
+      const dy=cy-h/2+f.y*drawH;
+      ctx.drawImage(buffer,srcX+i*sw,srcY,sw+1,wordH,dx,dy,dw+1,h);
+    }
+    ctx.restore();
+  }
+  // inertial ghosts
+  ctx.globalCompositeOperation='screen';
+  ctx.filter='blur(6px)'; pass(.08,110); pass(.05,220);
+  ctx.filter='none';ctx.globalCompositeOperation='source-over';pass(1,0);
+  // pressure probe
+  if(pointer.active){
+    ctx.strokeStyle='rgba(255,255,255,.18)';
+    ctx.beginPath();ctx.moveTo(pointer.x*W,0);ctx.lineTo(pointer.x*W,H);ctx.stroke();
+  }
+  requestAnimationFrame(draw);
+}
+canvas.addEventListener('pointermove',e=>{pointer.x=e.clientX/W;pointer.y=e.clientY/H;pointer.active=true});
+canvas.addEventListener('pointerleave',()=>pointer.active=false);
+canvas.addEventListener('pointerdown',e=>strike(e.clientX/W));
+input.addEventListener('input',rebuild);
+document.getElementById('replay').onclick=()=>strike(.18);
+addEventListener('resize',resize);resize();strike(.18);requestAnimationFrame(draw);
+</script>
+</body></html>

@@ -1,0 +1,159 @@
+<!doctype html>
+<html lang="en" class="w-full h-full overflow-hidden">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+    <title>Kinetics — a typographic performance</title>
+    <meta name="description" content="An audio-synced kinetic typography performance across a continuous spatial graph." />
+    <meta property="og:title" content="Kinetics — a typographic performance" />
+    <meta property="og:description" content="Timed lyrics, camera choreography, and mathematical imagery in one continuous typographic world." />
+    <meta property="og:type" content="website" />
+    <meta name="twitter:card" content="summary_large_image" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=Montserrat:ital,wght@0,300;0,400;0,600;0,700;0,800;0,900;1,400;1,600;1,700&family=Playfair+Display:ital,wght@0,600;0,700;0,800;1,600&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/src/index.css" />
+    <style>
+      *, *::before, *::after {
+        box-sizing: border-box;
+      }
+      html, body {
+        width: 100vw;
+        height: 100vh;
+        margin: 0;
+        padding: 0;
+        overflow: hidden !important;
+        position: fixed;
+        inset: 0;
+        overscroll-behavior: none;
+        touch-action: none;
+        scrollbar-width: none !important;
+        -ms-overflow-style: none !important;
+        background: #000;
+        font-family: 'Montserrat', sans-serif;
+      }
+      html::-webkit-scrollbar, body::-webkit-scrollbar {
+        display: none !important;
+        width: 0 !important;
+        height: 0 !important;
+      }
+      #kineticCanvas {
+        display: block;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100vw;
+        height: 100vh;
+        touch-action: none;
+        outline: none;
+        z-index: 1;
+      }
+
+      /* Bulletproof Fullscreen Presentation Gate */
+      #presentationGate {
+        position: fixed !important;
+        top: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        height: 100vh !important;
+        z-index: 99999 !important;
+        display: flex !important;
+        flex-direction: column !important;
+        align-items: center !important;
+        justify-content: center !important;
+        background: #ffffff !important;
+        color: #000000 !important;
+        cursor: pointer !important;
+        user-select: none !important;
+        transition: opacity 0.5s cubic-bezier(0.16, 1, 0.3, 1), visibility 0.5s !important;
+      }
+      #presentationGate.gate-hidden {
+        opacity: 0 !important;
+        visibility: hidden !important;
+        pointer-events: none !important;
+      }
+
+      @keyframes gate-pulse {
+        0% {
+          transform: scale(1);
+          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.22), 0 4px 20px rgba(0, 0, 0, 0.12);
+        }
+        70% {
+          transform: scale(1.04);
+          box-shadow: 0 0 0 18px rgba(0, 0, 0, 0), 0 8px 28px rgba(0, 0, 0, 0.18);
+        }
+        100% {
+          transform: scale(1);
+          box-shadow: 0 0 0 0 rgba(0, 0, 0, 0), 0 4px 20px rgba(0, 0, 0, 0.12);
+        }
+      }
+
+      .play-disc-pulse {
+        animation: gate-pulse 2.4s infinite ease-in-out;
+      }
+
+      /* Floating Presentation Bar (Little Options Button & Fullscreen) */
+      #presentationControlsBar {
+        position: fixed !important;
+        top: max(14px, env(safe-area-inset-top, 14px)) !important;
+        right: max(14px, env(safe-area-inset-right, 14px)) !important;
+        z-index: 9999 !important;
+        display: flex !important;
+        align-items: center !important;
+        gap: 8px !important;
+        user-select: none !important;
+        transition: opacity 0.35s ease !important;
+      }
+      #presentationControlsBar.bar-hidden {
+        opacity: 0 !important;
+        pointer-events: none !important;
+        visibility: hidden !important;
+      }
+      #presentationControlsBar.bar-visible {
+        opacity: 1 !important;
+        pointer-events: auto !important;
+        visibility: visible !important;
+      }
+
+      .floating-pill-btn {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        padding: 6px 12px;
+        border-radius: 4px;
+        background: rgba(18, 16, 14, 0.88);
+        backdrop-filter: blur(14px);
+        -webkit-backdrop-filter: blur(14px);
+        border: 1px solid rgba(245, 240, 227, 0.22);
+        color: #e2e8f0;
+        font-family: 'Montserrat', sans-serif;
+        font-size: 11px;
+        font-weight: 800;
+        letter-spacing: 0.12em;
+        text-transform: uppercase;
+        cursor: pointer;
+        transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+        box-shadow: 0 4px 20px rgba(0, 0, 0, 0.6);
+      }
+      .floating-pill-btn:hover {
+        background: rgba(28, 25, 23, 0.96);
+        border-color: #f59e0b;
+        color: #fbbf24;
+        transform: translateY(-1px);
+        box-shadow: 0 4px 20px rgba(245, 158, 11, 0.25);
+      }
+      .floating-pill-btn:active {
+        transform: translateY(0) scale(0.97);
+      }
+      .floating-pill-active {
+        background: rgba(245, 158, 11, 0.2) !important;
+        border-color: #f59e0b !important;
+        color: #fbbf24 !important;
+      }
+    </style>
+  </head>
+  <body class="m-0 p-0 overflow-hidden select-none bg-[#f4f2eb] fixed inset-0 w-full h-full">
+    <canvas id="kineticCanvas"></canvas>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

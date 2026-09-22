@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Depth Focus Rack Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #04060a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #10141c; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Depth Focus Rack Engine
+ * Three words sit at different simulated depths at all times. A lens
+ * "focus pull" smoothly racks sharpness from one layer to the next while
+ * the others fall out of focus, with gentle parallax drift for depth cues.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const layers = [
+  { word: "CONTEXT", x: 480, y: 190, scale: 0.55, maxBlur: 14, color: '#7fa8c9' },
+  { word: "SUBJECT", x: 480, y: 280, scale: 1.0, maxBlur: 16, color: '#e8f4ff' },
+  { word: "DETAIL", x: 480, y: 390, scale: 1.7, maxBlur: 20, color: '#ffd27f' }
+];
+layers.forEach(l => { l.focus = 0; });
+
+let focusIndex = 1;
+layers[focusIndex].focus = 1;
+
+let state = 'hold';
+let stateFrame = 0;
+const DUR = { hold: 75, rack: 45 };
+
+function cubicInOut(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+function nextFocusIndex(i) { return (i + 1) % layers.length; }
+
+function draw() {
+  ctx.fillStyle = '#04060a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  const t0 = performance.now() * 0.001;
+
+  if (state === 'hold' && stateFrame >= DUR.hold) {
+    state = 'rack'; stateFrame = 0;
+  } else if (state === 'rack') {
+    const t = Math.min(stateFrame / DUR.rack, 1);
+    const e = cubicInOut(t);
+    const ni = nextFocusIndex(focusIndex);
+    layers.forEach((l, i) => {
+      const fromV = (i === focusIndex) ? 1 : 0;
+      const toV = (i === ni) ? 1 : 0;
+      l.focus = fromV + (toV - fromV) * e;
+    });
+    if (t >= 1) {
+      focusIndex = ni;
+      layers.forEach((l, i) => { l.focus = (i === focusIndex) ? 1 : 0; });
+      state = 'hold'; stateFrame = 0;
+    }
+  }
+
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+  layers.forEach((l, i) => {
+    const blurPx = l.maxBlur * (1 - l.focus);
+    const drift = Math.sin(t0 * 0.4 + i) * 4;
+    ctx.save();
+    ctx.filter = blurPx > 0.3 ? `blur(${blurPx.toFixed(1)}px)` : 'none';
+    ctx.globalAlpha = 0.55 + 0.45 * l.focus;
+    ctx.font = `900 ${Math.round(64 * l.scale)}px "Arial Black", sans-serif`;
+    ctx.fillStyle = l.color;
+    ctx.fillText(l.word, l.x + drift, l.y);
+    ctx.restore();
+  });
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

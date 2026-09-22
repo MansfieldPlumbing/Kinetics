@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Liquid Blob Morph Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #04050a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  #wrap {
+    border: 1px solid #10131c;
+  }
+  canvas {
+    display: block;
+    filter: blur(9px) contrast(28);
+  }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="960" height="540"></canvas></div>
+<script>
+/**
+ * Liquid Blob Morph Engine
+ * Text is sampled into a point cloud of particles. A CSS blur+contrast
+ * "goo" filter fuses overlapping circles into a single liquid mass, and
+ * particles interpolate between successive phrases' point clouds so the
+ * word appears to melt and reform.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const off = document.createElement('canvas');
+off.width = 960; off.height = 540;
+const octx = off.getContext('2d');
+
+const phrases = ["LIQUID", "MORPH", "GOOEY", "FLOW"];
+const PARTICLES = 260;
+const RADIUS = 7;
+
+function fitFontSize(text, maxWidth) {
+  let size = 200;
+  octx.font = `900 ${size}px "Arial Black", sans-serif`;
+  while (octx.measureText(text).width > maxWidth && size > 40) {
+    size -= 4;
+    octx.font = `900 ${size}px "Arial Black", sans-serif`;
+  }
+  return size;
+}
+
+function samplePhrase(text) {
+  octx.fillStyle = '#000'; octx.fillRect(0, 0, off.width, off.height);
+  const size = fitFontSize(text, off.width - 100);
+  octx.font = `900 ${size}px "Arial Black", sans-serif`;
+  octx.fillStyle = '#fff';
+  octx.textAlign = 'center'; octx.textBaseline = 'middle';
+  octx.fillText(text, off.width / 2, off.height / 2);
+  const data = octx.getImageData(0, 0, off.width, off.height).data;
+  const pts = [];
+  const stride = 8;
+  for (let y = 0; y < off.height; y += stride) {
+    for (let x = 0; x < off.width; x += stride) {
+      const i = (y * off.width + x) * 4;
+      if (data[i + 3] > 128 && data[i] > 128) {
+        pts.push({ x, y });
+      }
+    }
+  }
+  for (let i = pts.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [pts[i], pts[j]] = [pts[j], pts[i]];
+  }
+  const out = [];
+  for (let i = 0; i < PARTICLES; i++) {
+    out.push(pts.length ? pts[i % pts.length] : { x: off.width / 2, y: off.height / 2 });
+  }
+  return out;
+}
+
+let phraseIndex = 0;
+let fromPts = samplePhrase(phrases[0]);
+let toPts = samplePhrase(phrases[1 % phrases.length]);
+let particles = fromPts.map(p => ({ x: p.x, y: p.y }));
+
+let state = 'hold';
+let stateFrame = 0;
+const DUR = { hold: 60, morph: 55 };
+
+function cubicInOut(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+function draw() {
+  ctx.fillStyle = '#050912';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  if (state === 'hold') {
+    particles = fromPts.map(p => ({ x: p.x, y: p.y }));
+    if (stateFrame >= DUR.hold) { state = 'morph'; stateFrame = 0; }
+  } else if (state === 'morph') {
+    const t = Math.min(stateFrame / DUR.morph, 1);
+    const e = cubicInOut(t);
+    particles = fromPts.map((p, i) => ({
+      x: p.x + (toPts[i].x - p.x) * e,
+      y: p.y + (toPts[i].y - p.y) * e
+    }));
+    if (t >= 1) {
+      phraseIndex = (phraseIndex + 1) % phrases.length;
+      fromPts = toPts;
+      toPts = samplePhrase(phrases[(phraseIndex + 1) % phrases.length]);
+      state = 'hold'; stateFrame = 0;
+    }
+  }
+
+  ctx.fillStyle = '#eafcff';
+  particles.forEach(p => {
+    ctx.beginPath();
+    ctx.arc(p.x, p.y, RADIUS, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

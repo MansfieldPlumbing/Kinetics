@@ -1,0 +1,33 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Hidden Variable Extraction</title><style>*{box-sizing:border-box}html,body{margin:0;height:100%;background:#05070d;display:grid;place-items:center;overflow:hidden}canvas{width:min(100vw,960px);height:auto;box-shadow:0 30px 90px #000}</style></head><body><canvas id="c" width="960" height="540"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d');
+const W=c.width,H=c.height,CX=W/2,CY=H/2;
+const D=8.2;
+const easeOut=t=>1-Math.pow(1-t,3), easeInOut=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+const clamp=t=>Math.max(0,Math.min(1,t));
+const field=[]; const glyphs=['3','7','+','−','÷','=','12','9','4','(',')','y','?'];
+for(let i=0;i<54;i++){const a=(i*2.399)+(i%7)*.17,r=90+(i%11)*27;field.push({g:glyphs[i%glyphs.length],a,r,z:(i%9)/9,spin:(i%5-2)*.018});}
+function bg(){x.fillStyle='#05070d';x.fillRect(0,0,W,H);const g=x.createRadialGradient(CX,CY,10,CX,CY,520);g.addColorStop(0,'rgba(31,56,104,.18)');g.addColorStop(1,'rgba(0,0,0,.72)');x.fillStyle=g;x.fillRect(0,0,W,H)}
+function glowText(t,px,py,size,alpha=1,blur=24,color='#f7fbff'){x.save();x.globalAlpha=alpha;x.font=`900 ${size}px Arial Black,Arial,sans-serif`;x.textAlign='center';x.textBaseline='middle';x.shadowColor=color;x.shadowBlur=blur;x.fillStyle=color;x.fillText(t,px,py);x.restore()}
+function draw(){requestAnimationFrame(draw);const time=(performance.now()/1000)%D;bg();
+// phases: crowd 0-2.0, detect 2-3.2, extraction 3.2-5.3, lock 5.3-6.7, exit 6.7-8.2
+const detect=clamp((time-1.7)/1.2), pull=clamp((time-2.8)/2.1), lock=clamp((time-5.0)/.8), exit=clamp((time-6.6)/1.2);
+const p=easeInOut(pull), scanX=-140+easeInOut(detect)*1240;
+// perspective equation field borrowed from repeated-text depth/camera primitives
+for(let i=0;i<field.length;i++){const q=field[i];let z=(q.z+time*.055)%1;let sc=.35+z*1.25;let rr=q.r*(.5+z*.9);let px=CX+Math.cos(q.a+time*q.spin*14)*rr, py=CY+Math.sin(q.a+time*q.spin*14)*rr*.55;
+  const repel=p*Math.max(0,1-Math.hypot(px-CX,py-CY)/360);px+=(px-CX)*repel*1.1;py+=(py-CY)*repel*1.1;
+  x.save();x.globalAlpha=(.12+.38*z)*(1-p*.78);x.translate(px,py);x.scale(sc,sc);x.font='700 26px Consolas,monospace';x.textAlign='center';x.textBaseline='middle';x.fillStyle='#8ea5c7';x.fillText(q.g,0,0);x.restore();}
+// scanline catches the unknown; not a literal spotlight
+if(detect>0&&pull<.65){x.save();x.globalCompositeOperation='lighter';const gr=x.createLinearGradient(scanX-130,0,scanX+130,0);gr.addColorStop(0,'rgba(80,220,255,0)');gr.addColorStop(.5,`rgba(80,220,255,${.24*(1-pull)})`);gr.addColorStop(1,'rgba(80,220,255,0)');x.fillStyle=gr;x.fillRect(scanX-140,58,280,H-116);x.restore();}
+// X begins camouflaged then is magnetically extracted and camera-locked
+let sx=CX+145,sy=CY+34; let tx=CX,ty=CY-18; let xx=sx+(tx-sx)*easeOut(p), yy=sy+(ty-sy)*easeOut(p);let scale=.72+1.28*easeOut(p)+.18*Math.sin(lock*Math.PI);
+if(exit>0){xx+=easeInOut(exit)*650;scale*=1-.22*exit;}
+// additive spring trail primitive
+for(let k=7;k>=1;k--){const lag=clamp(p-k*.045),e=easeOut(lag);let lx=sx+(tx-sx)*e,ly=sy+(ty-sy)*e;if(exit>0)lx+=easeInOut(clamp(exit-k*.035))*650;x.save();x.globalCompositeOperation='lighter';x.globalAlpha=.035*(8-k);glowText('X',lx,ly,76*(.72+1.28*e),1,10,'#46dfff');x.restore();}
+glowText('X',xx,yy,76*scale,1,20+32*p,'#f8fbff');
+// index-ramp isolation: surrounding phrase assembles around X only after lock
+const label='ISOLATE  THE  UNKNOWN';x.font='800 25px Arial,sans-serif';const chars=[...label], widths=chars.map(ch=>x.measureText(ch).width),tw=widths.reduce((a,b)=>a+b,0);let cx=CX-tw/2;for(let i=0;i<chars.length;i++){let r=clamp((lock-i/chars.length*.45)/.55),a=easeOut(r)*(1-exit);let cy=430+(1-easeOut(r))*55;x.save();x.globalAlpha=a;x.fillStyle='#b8c6dd';x.textAlign='left';x.textBaseline='middle';x.fillText(chars[i],cx,cy);x.restore();cx+=widths[i];}
+// equation residue brackets close toward X
+if(p>.2){let a=clamp((p-.2)/.6)*(1-exit);x.save();x.globalAlpha=a;x.strokeStyle='#4cd8ff';x.lineWidth=3;let d=155-95*easeOut(p);x.beginPath();x.moveTo(CX-d,CY-88);x.lineTo(CX-d-24,CY-88);x.lineTo(CX-d-24,CY+55);x.lineTo(CX-d,CY+55);x.moveTo(CX+d,CY-88);x.lineTo(CX+d+24,CY-88);x.lineTo(CX+d+24,CY+55);x.lineTo(CX+d,CY+55);x.stroke();x.restore();}
+}
+draw();
+</script></body></html>

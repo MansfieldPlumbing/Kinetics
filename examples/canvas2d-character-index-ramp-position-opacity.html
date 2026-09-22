@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 2D Character-Index Ramp for Position and Opacity</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #0b0c10;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            overflow: hidden;
+            font-family: 'Segoe UI', sans-serif;
+        }
+        canvas {
+            background-color: #0e111b;
+            border: 1px solid #1f2833;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="canvas" width="960" height="540"></canvas>
+    <script>
+        const canvas = document.getElementById('canvas');
+        const ctx = canvas.getContext('2d');
+
+        const phrase = "AFTER EFFECTS RAMP SELECTOR";
+        const fontSize = 54;
+        const font = `bold ${fontSize}px sans-serif`;
+
+        let frame = 0;
+        const durationFrames = 120;
+        const holdFrames = 60;
+        const totalCycle = durationFrames + holdFrames;
+
+        function animate() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            const cycleFrame = frame % totalCycle;
+            // Sweep offset from -100 to +100
+            let t = Math.min(cycleFrame / durationFrames, 1.0);
+            let offsetSweep = -100 + (t * 200);
+
+            ctx.font = font;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Measure letters
+            const chars = phrase.split('');
+            const widths = chars.map(c => ctx.measureText(c).width);
+            const totalW = widths.reduce((a, b) => a + b, 0);
+
+            let currentX = (canvas.width - totalW) / 2;
+            const baseY = canvas.height / 2;
+            const rampWidth = 60.0;
+
+            for (let i = 0; i < chars.length; i++) {
+                const cw = widths[i];
+                const charCenterX = currentX + cw / 2;
+                
+                // Normalized position from -100 to +100
+                const charPosNorm = (i / Math.max(1, chars.length - 1)) * 200 - 100;
+                const rawProgress = (offsetSweep - charPosNorm) / rampWidth;
+                const progress = Math.max(0.0, Math.min(1.0, rawProgress));
+
+                // Ease Low 100% (Cubic Hermite Deceleration)
+                const eased = 1.0 - Math.pow(1.0 - progress, 3.0);
+
+                // Target state: Y = +90px, Opacity = 0%
+                const yOffset = (1.0 - eased) * 90.0;
+                const alpha = eased;
+
+                ctx.save();
+                ctx.globalAlpha = alpha;
+                ctx.fillStyle = '#66fcf1';
+                ctx.fillText(chars[i], charCenterX, baseY + yOffset);
+                ctx.restore();
+
+                currentX += cw;
+            }
+
+            frame++;
+            requestAnimationFrame(animate);
+        }
+
+        animate();
+    </script>
+</body>
+</html>

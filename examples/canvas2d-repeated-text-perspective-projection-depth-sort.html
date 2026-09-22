@@ -1,0 +1,72 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canvas 2D Repeated Text Perspective Projection with Depth Sorting</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#030407;color:white;font-family:Arial,sans-serif}
+canvas{display:block;width:100vw;height:100vh}.hud{position:fixed;top:18px;left:20px;font:700 11px/1.5 monospace;letter-spacing:.12em;color:#7d8594}.hud b{color:white}
+.tip{position:fixed;bottom:18px;right:20px;font:700 10px monospace;color:#555}
+</style></head>
+<body><canvas id="c"></canvas>
+<div class="hud"><b>INFINITE TYPE TUNNEL</b><br>POINTER STEERS VANISHING POINT<br>CLICK = VELOCITY IMPULSE</div>
+<div class="tip">PERSPECTIVE / REPETITION / DEPTH</div>
+<script>
+const c=document.getElementById('c'),ctx=c.getContext('2d');
+let W,H,dpr=1,last=performance.now(),camera=0,boost=0,mouse={x:.5,y:.5},flash=0;
+const phrases=['GO DEEP','KEEP MOVING','THROUGH','AGAIN','NO END'];
+const rings=34, spacing=190, circumference=12, total=rings*spacing, focal=520, worldR=250;
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*dpr;c.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+function project(z){return focal/Math.max(42,z)}
+function draw(now){
+  let dt=Math.min(.04,(now-last)/1000);last=now;
+  let speed=150+boost;camera+=speed*dt;boost*=Math.pow(.12,dt);flash*=Math.pow(.02,dt);
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle=flash>0.08?`rgb(${8+flash*70},${8+flash*70},${12+flash*80})`:'#030407';
+  ctx.fillRect(0,0,W,H);
+  const vx=W/2+(mouse.x-.5)*W*.16, vy=H/2+(mouse.y-.5)*H*.16;
+  // depth rays
+  ctx.strokeStyle='rgba(255,255,255,.055)';ctx.lineWidth=1;
+  for(let a=0;a<Math.PI*2;a+=Math.PI/8){
+    ctx.beginPath();ctx.moveTo(vx,vy);ctx.lineTo(vx+Math.cos(a)*W,vy+Math.sin(a)*H);ctx.stroke();
+  }
+  const order=[];
+  for(let i=0;i<rings;i++){
+    let z=((i*spacing-camera)%total+total)%total+55;
+    order.push({i,z});
+  }
+  order.sort((a,b)=>b.z-a.z);
+  for(const r of order){
+    const s=project(r.z), rr=worldR*s;
+    if(rr<12||rr>Math.max(W,H)*2.2) continue;
+    const near=Math.max(0,1-r.z/900);
+    const alpha=Math.min(.92,.07+near*.88);
+    const rot=(now*.00012)*(r.i%2?1:-1)+r.i*.17;
+    const phrase=phrases[r.i%phrases.length];
+    const fs=Math.max(7,Math.min(120,42*s));
+    ctx.font=`900 ${fs}px Arial Black,Impact,sans-serif`;
+    ctx.textAlign='center';ctx.textBaseline='middle';
+    ctx.fillStyle=`rgba(255,255,255,${alpha})`;
+    for(let j=0;j<circumference;j++){
+      const a=rot+j*Math.PI*2/circumference;
+      const x=vx+Math.cos(a)*rr, y=vy+Math.sin(a)*rr*.72;
+      ctx.save();ctx.translate(x,y);ctx.rotate(a+Math.PI/2);
+      // compress far rings so the tunnel reads as actual depth
+      ctx.scale(1,Math.max(.55,1-r.z/8000));
+      ctx.fillText(phrase,0,0);ctx.restore();
+    }
+    if(r.z<110){flash=Math.max(flash,.32)}
+  }
+  // center aperture
+  const pulse=1+Math.sin(now*.004)*.05;
+  ctx.beginPath();ctx.arc(vx,vy,20*pulse,0,Math.PI*2);
+  ctx.fillStyle='#030407';ctx.fill();
+  ctx.strokeStyle='rgba(255,255,255,.45)';ctx.stroke();
+  ctx.font='700 10px monospace';ctx.fillStyle='rgba(255,255,255,.7)';ctx.textAlign='center';
+  ctx.fillText('VANISH',vx,vy+3);
+  requestAnimationFrame(draw);
+}
+addEventListener('resize',resize);addEventListener('pointermove',e=>{mouse.x=e.clientX/W;mouse.y=e.clientY/H});
+addEventListener('pointerdown',()=>{boost=700;flash=1});
+resize();requestAnimationFrame(draw);
+</script></body></html>

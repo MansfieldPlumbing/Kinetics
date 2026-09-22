@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Karaoke Sweep Highlight</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0c0d12;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #14161d; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Karaoke Sweep Engine
+ * A color wipe sweeps left-to-right across each lyric line in sync with a
+ * beat clock, then the line slides up and out as the next line slides in.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const lines = ["FOLLOW THE WORDS AS", "THE COLOR SWEEPS THROUGH", "RIGHT ON THE BEAT", "LINE AFTER LINE"];
+let idx = 0;
+let state = 'sweep';
+let stateFrame = 0;
+const DUR = { sweep: 80, hold: 18, trans: 28 };
+let curOffsetY = 0, curAlpha = 1, nextOffsetY = 0, nextAlpha = 0;
+
+function cubicInOut(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+function draw() {
+  ctx.fillStyle = '#0c0d12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '700 44px "Segoe UI", Arial, sans-serif';
+
+  const curText = lines[idx];
+  const nextText = lines[(idx + 1) % lines.length];
+  const curW = ctx.measureText(curText).width;
+
+  let sweepProgress = 0;
+
+  if (state === 'sweep') {
+    const t = Math.min(stateFrame / DUR.sweep, 1);
+    sweepProgress = t;
+    if (t >= 1) { state = 'hold'; stateFrame = 0; }
+  } else if (state === 'hold') {
+    sweepProgress = 1;
+    if (stateFrame >= DUR.hold) { state = 'trans'; stateFrame = 0; }
+  } else if (state === 'trans') {
+    sweepProgress = 1;
+    const t = Math.min(stateFrame / DUR.trans, 1);
+    const e = cubicInOut(t);
+    curOffsetY = -e * 70;
+    curAlpha = 1 - e;
+    nextOffsetY = 70 * (1 - e);
+    nextAlpha = e;
+    if (t >= 1) {
+      idx = (idx + 1) % lines.length;
+      state = 'sweep'; stateFrame = 0;
+      curOffsetY = 0; curAlpha = 1; nextOffsetY = 0; nextAlpha = 0;
+    }
+  }
+
+  if (state !== 'trans') { curOffsetY = 0; curAlpha = 1; }
+
+  ctx.save();
+  ctx.globalAlpha = curAlpha;
+  ctx.translate(cx, cy + curOffsetY);
+  ctx.fillStyle = 'rgba(255,255,255,0.22)';
+  ctx.fillText(curText, 0, 0);
+
+  ctx.save();
+  ctx.beginPath();
+  const clipW = curW * sweepProgress;
+  ctx.rect(-curW / 2, -60, clipW, 120);
+  ctx.clip();
+  ctx.shadowColor = '#ffd23f';
+  ctx.shadowBlur = 14;
+  ctx.fillStyle = '#ffd23f';
+  ctx.fillText(curText, 0, 0);
+  ctx.restore();
+
+  if (sweepProgress < 1 && sweepProgress > 0) {
+    const edgeX = -curW / 2 + clipW;
+    ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    ctx.moveTo(edgeX, -40);
+    ctx.lineTo(edgeX, 40);
+    ctx.stroke();
+  }
+  ctx.restore();
+
+  if (state === 'trans') {
+    ctx.save();
+    ctx.globalAlpha = nextAlpha;
+    ctx.translate(cx, cy + nextOffsetY);
+    ctx.fillStyle = 'rgba(255,255,255,0.22)';
+    ctx.fillText(nextText, 0, 0);
+    ctx.restore();
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

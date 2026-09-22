@@ -1,0 +1,149 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Onion Layer Peel Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0e0c08;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #221d12; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Onion Layer Peel Engine
+ * Illustrates the bridge: "Peel it back like an onion, layer by layer" /
+ * "Undo the addition and subtraction first, Then multiply or divide" —
+ * concentric operation rings wrap the variable, and each lyric beat
+ * peels the outermost ring away in reverse order-of-operations,
+ * curling off-screen until only X remains at the center.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const cues = [
+  { lyric: "What if there's two steps blocking the way?", peel: -1 },
+  { lyric: "Order of operations going backwards today.", peel: -1 },
+  { lyric: "Undo the addition and subtraction first,", peel: 0 },
+  { lyric: "Then multiply or divide to quench the thirst.", peel: 1 },
+  { lyric: "Peel it back like an onion, layer by layer,", peel: -1 },
+  { lyric: "Algebra's a puzzle and you're the star player.", peel: -1 }
+];
+
+// Outermost ring peels first (index 1 = "\u00F72", then index 0 = "+3")
+const rings = [
+  { label: "+3", radius: 200, color: '#e0a04a' },
+  { label: "\u00F72", radius: 140, color: '#c86b3c' }
+];
+let ringStates = rings.map(() => ({ peeled: false, curl: 0, angle: 0 }));
+
+let cueIndex = 0;
+let state = 'hold';
+let stateFrame = 0;
+const DUR = { hold: 70, peel: 40 };
+let activeRing = -1;
+
+function cubicIn(t) { return t * t * t; }
+
+function resetCycle() {
+  ringStates = rings.map(() => ({ peeled: false, curl: 0, angle: 0 }));
+  cueIndex = 0;
+}
+
+function draw() {
+  ctx.fillStyle = '#0e0c08';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  const cue = cues[cueIndex];
+  const cx = canvas.width / 2, cy = 230;
+
+  if (state === 'hold') {
+    if (stateFrame >= DUR.hold) {
+      const targetIdx = rings.length - 1 - ringStates.filter(r => r.peeled).length;
+      if (cue.peel >= 0 && targetIdx >= 0 && !ringStates[targetIdx].peeled) {
+        activeRing = targetIdx;
+        state = 'peel'; stateFrame = 0;
+      } else {
+        advance();
+      }
+    }
+  } else if (state === 'peel') {
+    const t = Math.min(stateFrame / DUR.peel, 1);
+    const e = cubicIn(t);
+    ringStates[activeRing].curl = e;
+    ringStates[activeRing].angle = e * 2.4;
+    if (t >= 1) {
+      ringStates[activeRing].peeled = true;
+      advance();
+    }
+  }
+
+  function advance() {
+    cueIndex++;
+    if (cueIndex >= cues.length) {
+      setTimeout(() => {}, 0);
+      cueIndex = 0;
+      ringStates = rings.map(() => ({ peeled: false, curl: 0, angle: 0 }));
+    }
+    state = 'hold'; stateFrame = 0;
+  }
+
+  // draw rings outer-to-inner, skipping fully peeled ones except mid-curl
+  for (let i = 0; i < rings.length; i++) {
+    const r = rings[i];
+    const rs = ringStates[i];
+    if (rs.peeled) continue;
+
+    ctx.save();
+    if (rs.curl > 0) {
+      const flyOff = rs.curl * 420;
+      ctx.translate(flyOff, -rs.curl * 160);
+      ctx.rotate(rs.angle);
+      ctx.globalAlpha = 1 - rs.curl * 0.7;
+    }
+    ctx.translate(cx, cy);
+    ctx.strokeStyle = r.color;
+    ctx.lineWidth = 26;
+    ctx.beginPath();
+    ctx.arc(0, 0, r.radius, 0, Math.PI * 2);
+    ctx.stroke();
+
+    ctx.font = '700 26px "Consolas", monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = '#1a1408';
+    ctx.fillText(r.label, 0, -r.radius);
+    ctx.restore();
+  }
+
+  // center variable, always visible
+  ctx.save();
+  ctx.translate(cx, cy);
+  ctx.font = '900 68px "Arial Black", sans-serif';
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.shadowColor = 'rgba(255,220,150,0.7)';
+  ctx.shadowBlur = 16;
+  ctx.fillStyle = '#fff3dd';
+  ctx.fillText('X', 0, 0);
+  ctx.restore();
+
+  ctx.font = '600 28px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#f3ead8';
+  ctx.textAlign = 'center';
+  ctx.fillText(cue.lyric, canvas.width / 2, 440);
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Hidden Variable Spotlight Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0c0a12;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #1a1626; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Hidden Variable Spotlight Engine
+ * Illustrates "a guest at the party trying to hide" / "isolate the
+ * letter, put it on a throne" — X and Y start dim, blended into a
+ * crowd of decoy symbols, then a spotlight sweeps in, isolates the
+ * real variable, and lifts it alone onto a glowing throne pedestal
+ * as the matching lyric line plays.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const cues = [
+  { lyric: "We call it a variable, a mystery inside,", reveal: false, target: "X" },
+  { lyric: "A guest at the party trying to hide.", reveal: false, target: "X" },
+  { lyric: "The goal of the game is to leave it alone,", reveal: true, target: "X" },
+  { lyric: "Isolate the letter, put it on a throne.", reveal: true, target: "X" }
+];
+
+const decoys = "3 7 ( ) + \u00F7 = 12 9 \u2212 4".split(' ');
+let decoyPositions = [];
+function makeDecoys() {
+  decoyPositions = decoys.map(() => ({
+    x: 120 + Math.random() * (canvas.width - 240),
+    y: 160 + Math.random() * 220,
+    r: 20 + Math.random() * 20,
+    drift: Math.random() * Math.PI * 2
+  }));
+}
+makeDecoys();
+
+let cueIndex = 0;
+let state = 'crowd';
+let stateFrame = 0;
+const DUR = { crowd: 60, sweep: 45, throne: 70, fade: 25 };
+let spotlightX = 0;
+let isolateAmt = 0;
+let throneAmt = 0;
+
+function cubicOut(t) { return 1 - Math.pow(1 - t, 3); }
+function cubicInOut(t) { return t < 0.5 ? 4 * t * t * t : 1 - Math.pow(-2 * t + 2, 3) / 2; }
+
+function draw() {
+  ctx.fillStyle = '#0c0a12';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  const cue = cues[cueIndex];
+  const cx = canvas.width / 2, cy = 220;
+
+  if (state === 'crowd') {
+    spotlightX = cx; isolateAmt = 0; throneAmt = 0;
+    if (stateFrame >= DUR.crowd) {
+      state = cue.reveal ? 'sweep' : 'fadeOut'; stateFrame = 0;
+    }
+  } else if (state === 'sweep') {
+    const t = Math.min(stateFrame / DUR.sweep, 1);
+    const e = cubicInOut(t);
+    spotlightX = 130 + e * (canvas.width - 260);
+    isolateAmt = e;
+    if (t >= 1) { state = 'throne'; stateFrame = 0; }
+  } else if (state === 'throne') {
+    const t = Math.min(stateFrame / DUR.throne, 1);
+    throneAmt = cubicOut(Math.min(t * 1.4, 1));
+    isolateAmt = 1;
+    if (t >= 1 && stateFrame >= DUR.throne) { state = 'fadeOut'; stateFrame = 0; }
+  } else if (state === 'fadeOut') {
+    const t = Math.min(stateFrame / DUR.fade, 1);
+    if (t >= 1) {
+      cueIndex = (cueIndex + 1) % cues.length;
+      if (cueIndex === 0) makeDecoys();
+      state = 'crowd'; stateFrame = 0;
+    }
+  }
+
+  // decoy crowd, dimmed once isolation kicks in
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = '700 30px "Consolas", monospace';
+  decoyPositions.forEach((p, i) => {
+    const wob = Math.sin(stateFrame * 0.02 + p.drift) * 4;
+    ctx.globalAlpha = (1 - isolateAmt) * 0.5;
+    ctx.fillStyle = '#8a86a8';
+    ctx.fillText(decoys[i], p.x, p.y + wob);
+  });
+  ctx.globalAlpha = 1;
+
+  // spotlight cone
+  if (isolateAmt > 0.01) {
+    const grad = ctx.createRadialGradient(spotlightX, cy, 10, spotlightX, cy, 140);
+    grad.addColorStop(0, `rgba(255,230,150,${0.35 * isolateAmt})`);
+    grad.addColorStop(1, 'rgba(255,230,150,0)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+  }
+
+  // the variable itself, drifting with the crowd until isolated
+  const varX = isolateAmt > 0.01 ? spotlightX : cx + Math.sin(stateFrame * 0.03) * 60;
+  const varY = cy - throneAmt * 70;
+  ctx.font = `900 ${64 + throneAmt * 30}px "Arial Black", sans-serif`;
+  ctx.shadowColor = 'rgba(255,220,120,0.9)';
+  ctx.shadowBlur = 10 + 25 * isolateAmt;
+  ctx.fillStyle = `rgba(255,245,220,${0.5 + 0.5 * isolateAmt})`;
+  ctx.fillText(cue.target, varX, varY);
+  ctx.shadowBlur = 0;
+
+  // throne pedestal once fully isolated
+  if (throneAmt > 0.05) {
+    ctx.save();
+    ctx.globalAlpha = throneAmt;
+    ctx.fillStyle = '#3a2e18';
+    ctx.fillRect(varX - 60, varY + 60, 120, 14);
+    ctx.fillStyle = '#5c471f';
+    ctx.beginPath();
+    ctx.moveTo(varX - 80, varY + 74);
+    ctx.lineTo(varX + 80, varY + 74);
+    ctx.lineTo(varX + 50, varY + 100);
+    ctx.lineTo(varX - 50, varY + 100);
+    ctx.closePath();
+    ctx.fill();
+    ctx.restore();
+  }
+
+  ctx.font = '600 28px "Segoe UI", Arial, sans-serif';
+  ctx.fillStyle = '#eee6ff';
+  ctx.globalAlpha = state === 'fadeOut' ? 1 - stateFrame / DUR.fade : 1;
+  ctx.fillText(cue.lyric, canvas.width / 2, 440);
+  ctx.globalAlpha = 1;
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

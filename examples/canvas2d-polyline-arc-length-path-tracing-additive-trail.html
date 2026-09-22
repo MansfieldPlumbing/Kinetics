@@ -1,0 +1,462 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Canvas 2D Polyline Arc-Length Path Tracing with Additive Trail</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #050608;
+      color: #e0e0e0;
+      font-family: monospace;
+      overflow: hidden;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    #canvas-container {
+      position: relative;
+      box-shadow: 0 0 50px rgba(0, 255, 200, 0.08);
+      border: 1px solid #142028;
+      border-radius: 4px;
+      overflow: hidden;
+    }
+    canvas {
+      display: block;
+      background: #020305;
+    }
+    .hud {
+      position: absolute;
+      top: 12px;
+      left: 14px;
+      pointer-events: none;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: rgba(0, 255, 200, 0.6);
+      line-height: 1.5;
+    }
+    .controls {
+      margin-top: 14px;
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+    }
+    button {
+      background: #0a151d;
+      border: 1px solid #00ffc844;
+      color: #00ffc8;
+      padding: 6px 14px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      transition: all 0.15s ease;
+    }
+    button:hover {
+      background: #00ffc822;
+      border-color: #00ffc8;
+      box-shadow: 0 0 10px rgba(0, 255, 200, 0.3);
+    }
+  </style>
+</head>
+<body>
+
+  <div id="canvas-container">
+    <div class="hud">
+      SYSTEM: GALVO_XY_SCANNER<br>
+      STATUS: <span id="status-text">EMITTING</span><br>
+      ARC_LEN: <span id="telemetry">0.00</span> px
+    </div>
+    <canvas id="laserCanvas" width="900" height="520"></canvas>
+  </div>
+
+  <div class="controls">
+    <button id="btn-replay">RE-STRIKE BEAM</button>
+    <button id="btn-toggle-blanking">TOGGLE BLANKING TRAILS</button>
+  </div>
+
+<script>
+/**
+ * Polyline arc-length path tracing with additive trail rendering
+ * -------------------------------------------------------------
+ * 1. Arc-Length Parametrization: Enforces uniform linear write-on velocity.
+ * 2. Galvo Dwell / Corner Burn: Radiance scales inversely with velocity.
+ * 3. Optical Glow Stack: Composite passes (Bloom -> Core -> Super-hot Spine).
+ * 4. Micro-speckle & Galvo transit jump (blanking interval simulation).
+ */
+
+const canvas = document.getElementById('laserCanvas');
+const ctx = canvas.getContext('2d');
+const telemetryEl = document.getElementById('telemetry');
+const statusEl = document.getElementById('status-text');
+
+let showBlanking = true;
+let animId = null;
+
+// --- 1. Skeletal Vector Path Definitions (Continuous Multi-Stroke) ---
+// Defined as relative coordinates [-1, 1] to keep scale-invariant.
+const SKELETAL_DATA = [
+  // Outer rectangular and diagonal paths
+  [
+    { x: -0.85, y: -0.65 }, { x: 0.85, y: -0.65 },
+    { x: 0.90, y: -0.55 }, { x: 0.90, y: 0.55 },
+    { x: 0.85, y: 0.65 },  { x: -0.85, y: 0.65 },
+    { x: -0.90, y: 0.55 }, { x: -0.90, y: -0.55 },
+    { x: -0.85, y: -0.65 }
+  ],
+  // Center crossing polyline paths
+  [
+    { x: -0.60, y: 0.35 },
+    { x: -0.40, y: -0.40 },
+    { x: -0.20, y: 0.35 },
+    { x: -0.10, y: -0.15 },
+    { x: 0.10, y: -0.15 },
+    { x: 0.20, y: 0.35 },
+    { x: 0.40, y: -0.40 },
+    { x: 0.60, y: 0.35 }
+  ],
+  // Sweeping cursive flourish / cross-ties
+  [
+    { x: -0.70, y: 0.05 },
+    { x: -0.30, y: 0.15 },
+    { x: 0.00, y: -0.35 },
+    { x: 0.30, y: 0.15 },
+    { x: 0.70, y: 0.05 }
+  ],
+  // Core target ring (discrete skeletal stroke)
+  (() => {
+    const pts = [];
+    const steps = 36;
+    const r = 0.18;
+    for (let i = 0; i <= steps; i++) {
+      const theta = (i / steps) * Math.PI * 2;
+      pts.push({ x: Math.cos(theta) * r, y: Math.sin(theta) * r });
+    }
+    return pts;
+  })()
+];
+
+// --- 2. Toolpath Precomputation & Arc-Length Parameterization ---
+class PathCompiler {
+  static compile(strokesData, width, height) {
+    const scaleX = width * 0.46;
+    const scaleY = height * 0.44;
+    const cx = width / 2;
+    const cy = height / 2;
+
+    const compiledStrokes = [];
+    let totalPathLength = 0;
+
+    strokesData.forEach((stroke, strokeIdx) => {
+      const pts = stroke.map(p => ({
+        x: cx + p.x * scaleX,
+        y: cy + p.y * scaleY
+      }));
+
+      const segments = [];
+      let strokeLen = 0;
+
+      for (let i = 0; i < pts.length - 1; i++) {
+        const p0 = pts[i];
+        const p1 = pts[i + 1];
+        const dx = p1.x - p0.x;
+        const dy = p1.y - p0.y;
+        const len = Math.hypot(dx, dy);
+
+        segments.push({
+          p0,
+          p1,
+          len,
+          accumStart: strokeLen,
+          accumEnd: strokeLen + len
+        });
+        strokeLen += len;
+      }
+
+      compiledStrokes.push({
+        strokeIdx,
+        pts,
+        segments,
+        totalLength: strokeLen,
+        globalStart: totalPathLength,
+        globalEnd: totalPathLength + strokeLen
+      });
+
+      totalPathLength += strokeLen;
+    });
+
+    return { strokes: compiledStrokes, totalPathLength };
+  }
+}
+
+// --- 3. Optical Laser Flare & Particle Spark Emitter ---
+class LaserEmitter {
+  constructor() {
+    this.sparks = [];
+  }
+
+  emit(x, y, vx, vy, count = 2) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.atan2(vy, vx) + Math.PI + (Math.random() - 0.5) * 1.8;
+      const speed = Math.random() * 45 + 10;
+      this.sparks.push({
+        x,
+        y,
+        vx: Math.cos(angle) * speed,
+        vy: Math.sin(angle) * speed,
+        life: 1.0,
+        decay: Math.random() * 2.5 + 2.0,
+        size: Math.random() * 1.5 + 0.8
+      });
+    }
+  }
+
+  update(dt) {
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i];
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.life -= s.decay * dt;
+      if (s.life <= 0) this.sparks.splice(i, 1);
+    }
+  }
+
+  draw(ctx) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    this.sparks.forEach(s => {
+      ctx.fillStyle = `rgba(180, 255, 240, ${s.life * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+}
+
+// --- 4. Animation Runtime ---
+const { strokes, totalPathLength } = PathCompiler.compile(SKELETAL_DATA, canvas.width, canvas.height);
+const emitter = new LaserEmitter();
+
+let currentProgress = 0; // units: pixels traversed
+const speed = 480;       // px/sec write-on feed rate
+let lastTime = performance.now();
+let activeHead = { x: 0, y: 0, vx: 0, vy: 0, isBlankingTransit: false };
+let previousStrokeEnd = null;
+
+function reset() {
+  currentProgress = 0;
+  emitter.sparks = [];
+  lastTime = performance.now();
+  statusEl.textContent = "EMITTING";
+  statusEl.style.color = "#00ffc8";
+}
+
+function sampleToolhead(s) {
+  for (let i = 0; i < strokes.length; i++) {
+    const stroke = strokes[i];
+    if (s >= stroke.globalStart && s <= stroke.globalEnd) {
+      const localS = s - stroke.globalStart;
+      for (const seg of stroke.segments) {
+        if (localS >= seg.accumStart && localS <= seg.accumEnd) {
+          const t = seg.len === 0 ? 0 : (localS - seg.accumStart) / seg.len;
+          return {
+            strokeIdx: i,
+            x: seg.p0.x + (seg.p1.x - seg.p0.x) * t,
+            y: seg.p0.y + (seg.p1.y - seg.p0.y) * t,
+            nx: (seg.p1.x - seg.p0.x) / (seg.len || 1),
+            ny: (seg.p1.y - seg.p0.y) / (seg.len || 1),
+            doneStroke: false,
+            seg
+          };
+        }
+      }
+    }
+  }
+  // If past final stroke: pin to end
+  const lastStroke = strokes[strokes.length - 1];
+  const lastPt = lastStroke.pts[lastStroke.pts.length - 1];
+  return {
+    strokeIdx: strokes.length - 1,
+    x: lastPt.x,
+    y: lastPt.y,
+    nx: 0,
+    ny: 0,
+    doneStroke: true
+  };
+}
+
+// --- 5. Render Pass Architecture ---
+function renderFrame(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.064);
+  lastTime = now;
+
+  if (currentProgress < totalPathLength) {
+    currentProgress += speed * dt;
+    if (currentProgress > totalPathLength) currentProgress = totalPathLength;
+  } else {
+    statusEl.textContent = "SCAN_COMPLETE (IDLE)";
+    statusEl.style.color = "#77a599";
+  }
+
+  telemetryEl.textContent = currentProgress.toFixed(1);
+
+  // Update physical toolhead sampling
+  const head = sampleToolhead(currentProgress);
+  const vx = head.nx * speed;
+  const vy = head.ny * speed;
+
+  if (currentProgress < totalPathLength) {
+    // Laser speckle micro-jitter
+    const jitterX = (Math.random() - 0.5) * 0.7;
+    const jitterY = (Math.random() - 0.5) * 0.7;
+    emitter.emit(head.x + jitterX, head.y + jitterY, vx, vy, 1);
+  }
+  emitter.update(dt);
+
+  // --- Frame Clear with Phosphor Afterglow / Persistence ---
+  ctx.fillStyle = "rgba(2, 3, 5, 0.82)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // --- PASS 1: Galvo Transit / Blanking Lines (Low power flyback) ---
+  if (showBlanking) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(0, 255, 200, 0.08)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 6]);
+    ctx.beginPath();
+    for (let i = 0; i < strokes.length - 1; i++) {
+      const endPt = strokes[i].pts[strokes[i].pts.length - 1];
+      const startNextPt = strokes[i + 1].pts[0];
+      if (currentProgress >= strokes[i].globalEnd) {
+        ctx.moveTo(endPt.x, endPt.y);
+        ctx.lineTo(startNextPt.x, startNextPt.y);
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // --- PASS 2: Multi-Pass Laser Radiance Core ---
+  // The line is drawn 3 times under additive blending with varying profiles:
+  // Layer A: Wide atmospheric outer bloom (soft cyan)
+  // Layer B: Saturated ionizing plasma halo
+  // Layer C: Razor-sharp hyper-white core beam
+  const layers = [
+    { width: 9.0, color: "rgba(0, 255, 200, 0.07)", blur: 12 },
+    { width: 3.5, color: "rgba(30, 255, 220, 0.35)", blur: 4 },
+    { width: 1.2, color: "rgba(255, 255, 255, 0.95)", blur: 0 }
+  ];
+
+  layers.forEach(layer => {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = layer.color;
+    ctx.lineWidth = layer.width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (layer.blur > 0) {
+      ctx.shadowColor = "rgba(0, 255, 200, 0.6)";
+      ctx.shadowBlur = layer.blur;
+    }
+
+    strokes.forEach(stroke => {
+      if (currentProgress < stroke.globalStart) return;
+
+      const visibleStrokeDist = Math.min(currentProgress - stroke.globalStart, stroke.totalLength);
+      let distCovered = 0;
+
+      ctx.beginPath();
+      ctx.moveTo(stroke.pts[0].x, stroke.pts[0].y);
+
+      for (const seg of stroke.segments) {
+        if (visibleStrokeDist >= seg.accumEnd) {
+          ctx.lineTo(seg.p1.x, seg.p1.y);
+        } else if (visibleStrokeDist > seg.accumStart) {
+          const t = (visibleStrokeDist - seg.accumStart) / seg.len;
+          const px = seg.p0.x + (seg.p1.x - seg.p0.x) * t;
+          const py = seg.p0.y + (seg.p1.y - seg.p0.y) * t;
+          ctx.lineTo(px, py);
+          break;
+        } else {
+          break;
+        }
+      }
+      ctx.stroke();
+    });
+    ctx.restore();
+  });
+
+  // --- PASS 3: Corner Dwell Heat Accumulation ---
+  // Galvo mirrors slow down at sharp corners; dwell time deposits more photons
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  strokes.forEach(stroke => {
+    if (currentProgress < stroke.globalStart) return;
+    stroke.segments.forEach(seg => {
+      if (currentProgress >= stroke.globalStart + seg.accumEnd) {
+        // Point vertex dwell spot
+        const grad = ctx.createRadialGradient(seg.p1.x, seg.p1.y, 0, seg.p1.x, seg.p1.y, 4);
+        grad.addColorStop(0, "rgba(255, 255, 255, 0.8)");
+        grad.addColorStop(0.5, "rgba(0, 255, 210, 0.3)");
+        grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(seg.p1.x, seg.p1.y, 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  });
+  ctx.restore();
+
+  // --- PASS 4: Active Laser Spot & Plasma Corona ---
+  if (currentProgress < totalPathLength) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    // Massive localized flare
+    const flare = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 18);
+    flare.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+    flare.addColorStop(0.15, 'rgba(120, 255, 230, 0.9)');
+    flare.addColorStop(0.4, 'rgba(0, 255, 190, 0.25)');
+    flare.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = flare;
+    ctx.beginPath();
+    ctx.arc(head.x, head.y, 18, 0, Math.PI * 2);
+    ctx.fill();
+
+    // Galvo beam collimation crosshair (anamorphic lens artifacts)
+    ctx.strokeStyle = "rgba(180, 255, 240, 0.35)";
+    ctx.lineWidth = 0.75;
+    ctx.beginPath();
+    ctx.moveTo(head.x - 14, head.y);
+    ctx.lineTo(head.x + 14, head.y);
+    ctx.moveTo(head.x, head.y - 14);
+    ctx.lineTo(head.x, head.y + 14);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // --- PASS 5: Spark Dynamics ---
+  emitter.draw(ctx);
+
+  animId = requestAnimationFrame(renderFrame);
+}
+
+// UI Triggers
+document.getElementById('btn-replay').addEventListener('click', () => {
+  reset();
+});
+
+document.getElementById('btn-toggle-blanking').addEventListener('click', () => {
+  showBlanking = !showBlanking;
+});
+
+// Bootstrap
+reset();
+animId = requestAnimationFrame(renderFrame);
+</script>
+</body>
+</html>

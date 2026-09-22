@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Neon Sign Flicker Kinetic Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #08090c;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #0f1114; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Neon Sign Flicker Engine
+ * Each phrase buzzes on with an unstable gas-discharge flicker, holds steady
+ * glow, then buzzes off before the next sign lights up.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const signs = [
+  { text: "OPEN LATE", color: '#ff3d9a' },
+  { text: "NIGHT OWL", color: '#39f5ff' },
+  { text: "ALWAYS ON", color: '#c9ff3d' },
+  { text: "NEON DREAMS", color: '#ff9d3d' }
+];
+let idx = 0;
+let phase = 'on';
+let stateFrame = 0;
+const DUR = { on: 50, steady: 100, off: 30 };
+
+function dropProbFor() {
+  if (phase === 'on') {
+    const t = stateFrame / DUR.on;
+    return Math.max(0, 0.22 * (1 - t));
+  } else if (phase === 'steady') {
+    return 0.006;
+  } else {
+    const t = stateFrame / DUR.off;
+    return 0.05 + t * 0.35;
+  }
+}
+
+let dropoutTimer = 0;
+let brightness = 0;
+
+function hexToRgba(hex, a) {
+  const v = hex.replace('#', '');
+  const r = parseInt(v.substring(0, 2), 16);
+  const g = parseInt(v.substring(2, 4), 16);
+  const b = parseInt(v.substring(4, 6), 16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+function tick() {
+  stateFrame++;
+  const dp = dropProbFor();
+  if (dropoutTimer > 0) {
+    dropoutTimer--;
+    brightness = 0.04 + Math.random() * 0.08;
+  } else if (Math.random() < dp) {
+    dropoutTimer = 1 + Math.floor(Math.random() * 3);
+    brightness = 0.04;
+  } else {
+    brightness = 0.92 + Math.random() * 0.08;
+  }
+
+  if (phase === 'on' && stateFrame >= DUR.on) { phase = 'steady'; stateFrame = 0; }
+  else if (phase === 'steady' && stateFrame >= DUR.steady) { phase = 'off'; stateFrame = 0; }
+  else if (phase === 'off' && stateFrame >= DUR.off) {
+    brightness = 0;
+    idx = (idx + 1) % signs.length;
+    phase = 'on'; stateFrame = 0;
+  }
+}
+
+function draw() {
+  tick();
+  ctx.fillStyle = '#08090c';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const vg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 80, canvas.width / 2, canvas.height / 2, 520);
+  vg.addColorStop(0, 'rgba(20,20,26,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.6)');
+  ctx.fillStyle = vg; ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  const sign = signs[idx];
+  ctx.save();
+  ctx.translate(canvas.width / 2, canvas.height / 2);
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.font = "italic 900 68px 'Brush Script MT', 'Segoe Script', cursive";
+
+  ctx.globalAlpha = 0.12;
+  ctx.fillStyle = sign.color;
+  ctx.fillText(sign.text, 0, 0);
+  ctx.globalAlpha = 1;
+
+  if (brightness > 0.06) {
+    ctx.globalCompositeOperation = 'lighter';
+    const spill = ctx.createRadialGradient(0, 0, 20, 0, 0, 420);
+    spill.addColorStop(0, hexToRgba(sign.color, 0.18 * brightness));
+    spill.addColorStop(1, 'rgba(0,0,0,0)');
+    ctx.fillStyle = spill;
+    ctx.fillRect(-canvas.width / 2, -canvas.height / 2, canvas.width, canvas.height);
+
+    ctx.shadowColor = sign.color;
+    ctx.shadowBlur = 40 * brightness;
+    ctx.fillStyle = hexToRgba(sign.color, 0.5 * brightness);
+    ctx.fillText(sign.text, 0, 0);
+
+    ctx.shadowBlur = 16 * brightness;
+    ctx.fillStyle = hexToRgba(sign.color, 0.85 * brightness);
+    ctx.fillText(sign.text, 0, 0);
+
+    ctx.shadowBlur = 4;
+    ctx.fillStyle = `rgba(255,255,255,${0.9 * brightness})`;
+    ctx.fillText(sign.text, 0, 0);
+    ctx.globalCompositeOperation = 'source-over';
+  }
+
+  ctx.restore();
+  requestAnimationFrame(draw);
+}
+
+draw();
+</script>
+</body>
+</html>

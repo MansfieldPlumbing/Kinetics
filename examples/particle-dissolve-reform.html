@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Particle Dissolve & Reform</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #05060a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #10131a; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Particle Dissolve / Reform Engine
+ * Text is rasterized to a pixel point cloud. On cue the cloud explodes
+ * outward under simple gravity + drag physics, then the same particles are
+ * pulled by an eased spring toward the next phrase's sampled point cloud.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const off = document.createElement('canvas');
+off.width = 960; off.height = 540;
+const octx = off.getContext('2d');
+
+const phrases = ["DISSOLVE", "SCATTER", "REFORM", "REBUILD"];
+const STRIDE = 5;
+
+function fitFont(text, maxWidth) {
+  let size = 180;
+  octx.font = `900 ${size}px "Arial Black", sans-serif`;
+  while (octx.measureText(text).width > maxWidth && size > 40) {
+    size -= 4; octx.font = `900 ${size}px "Arial Black", sans-serif`;
+  }
+  return size;
+}
+
+function samplePhrase(text) {
+  octx.fillStyle = '#000'; octx.fillRect(0, 0, off.width, off.height);
+  const size = fitFont(text, off.width - 100);
+  octx.font = `900 ${size}px "Arial Black", sans-serif`;
+  octx.fillStyle = '#fff';
+  octx.textAlign = 'center'; octx.textBaseline = 'middle';
+  octx.fillText(text, off.width / 2, off.height / 2);
+  const data = octx.getImageData(0, 0, off.width, off.height).data;
+  const pts = [];
+  for (let y = 0; y < off.height; y += STRIDE) {
+    for (let x = 0; x < off.width; x += STRIDE) {
+      const i = (y * off.width + x) * 4;
+      if (data[i + 3] > 128) { pts.push({ x, y }); }
+    }
+  }
+  return pts;
+}
+
+let phraseIndex = 0;
+const initialTargets = samplePhrase(phrases[0]);
+let particles = initialTargets.map(p => ({ x: p.x, y: p.y, vx: 0, vy: 0, home: { x: p.x, y: p.y } }));
+
+let state = 'hold';
+let stateFrame = 0;
+const DUR = { hold: 70, explode: 45, reform: 65 };
+
+function cubicOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+function startExplode() {
+  const cx = canvas.width / 2, cy = canvas.height / 2;
+  particles.forEach(p => {
+    const dx = p.x - cx, dy = p.y - cy;
+    const dist = Math.hypot(dx, dy) || 1;
+    const speed = 80 + Math.random() * 260;
+    p.vx = (dx / dist) * speed + (Math.random() - 0.5) * 80;
+    p.vy = (dy / dist) * speed + (Math.random() - 0.5) * 80 - 60;
+  });
+  state = 'explode'; stateFrame = 0;
+}
+
+function startReform() {
+  phraseIndex = (phraseIndex + 1) % phrases.length;
+  const newTargets = samplePhrase(phrases[phraseIndex]);
+  particles.forEach((p, i) => {
+    p.startX = p.x; p.startY = p.y;
+    const t = newTargets[i % newTargets.length];
+    p.home = { x: t.x, y: t.y };
+  });
+  state = 'reform'; stateFrame = 0;
+}
+
+function draw() {
+  ctx.fillStyle = '#05060a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+
+  if (state === 'hold') {
+    if (stateFrame >= DUR.hold) { startExplode(); }
+  } else if (state === 'explode') {
+    const dt = 1 / 60;
+    particles.forEach(p => {
+      p.vy += 260 * dt;
+      p.vx *= 0.985;
+      p.x += p.vx * dt;
+      p.y += p.vy * dt;
+    });
+    if (stateFrame >= DUR.explode) { startReform(); }
+  } else if (state === 'reform') {
+    const t = Math.min(stateFrame / DUR.reform, 1);
+    const e = cubicOut(t);
+    particles.forEach(p => {
+      p.x = p.startX + (p.home.x - p.startX) * e;
+      p.y = p.startY + (p.home.y - p.startY) * e;
+    });
+    if (t >= 1) { state = 'hold'; stateFrame = 0; }
+  }
+
+  ctx.fillStyle = '#ffb85c';
+  particles.forEach(p => {
+    ctx.fillRect(p.x - 1.4, p.y - 1.4, 2.8, 2.8);
+  });
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 2D Frame-Timed Word Switching, Scaling, and Random Translation</title>
+    <style>
+        body {
+            margin: 0;
+            background-color: #050505;
+            overflow: hidden;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            font-family: 'Impact', 'Arial Black', sans-serif;
+            letter-spacing: -2px;
+        }
+        canvas {
+            display: block;
+        }
+    </style>
+</head>
+<body>
+
+    <canvas id="animationCanvas"></canvas>
+
+    <script>
+        const canvas = document.getElementById('animationCanvas');
+        const ctx = canvas.getContext('2d');
+
+        canvas.width = window.innerWidth;
+        canvas.height = window.innerHeight;
+
+        // Frame-timed word sequence
+        const lyrics = ["FRAME", "TIMED", "WORD", "SWITCH", "SCALE", "DECAY", "RANDOM", "X", "RANDOM", "Y", "REPEAT"];
+        let currentWordIndex = 0;
+
+        // Configuration variables
+        const baseFontSize = 180;
+        let scale = 1;
+        let shakeIntensity = 0;
+        let frameCount = 0;
+
+        // Frame-count timing variables
+        const wordSwitchInterval = 8;
+        const periodicShakeInterval = 32;
+
+        function animate() {
+            frameCount++;
+            
+            // 1. Process timing triggers
+            if (frameCount % wordSwitchInterval === 0) {
+                currentWordIndex = (currentWordIndex + 1) % lyrics.length;
+                scale = 1.4; // Impact pop when a word hits
+            }
+
+            if (frameCount % periodicShakeInterval === 0) {
+                shakeIntensity = 35;
+            }
+
+            // 2. Fast decay formulas for the kinetic impacts
+            scale += (1.0 - scale) * 0.25;
+            shakeIntensity *= 0.85;
+
+            // 3. Screen shake calculation
+            const shakeX = (Math.random() - 0.5) * shakeIntensity;
+            const shakeY = (Math.random() - 0.5) * shakeIntensity;
+
+            // Clear screen with high-contrast strobe flash possibility
+            if (shakeIntensity > 15 && frameCount % 2 === 0) {
+                ctx.fillStyle = '#1a1a1a';
+            } else {
+                ctx.fillStyle = '#050505';
+            }
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+            // Save canvas context configuration state to apply the shaking camera matrix
+            ctx.save();
+            ctx.translate(canvas.width / 2 + shakeX, canvas.height / 2 + shakeY);
+            ctx.scale(scale, scale);
+
+            // 4. Kinetic text layout transformations
+            const activeText = lyrics[currentWordIndex];
+            const displayFontSize = baseFontSize + (shakeIntensity * 0.5);
+            ctx.font = `italic 900 ${displayFontSize}px Impact, sans-serif`;
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+
+            // Underlying industrial grit motion/ghost trail
+            ctx.fillStyle = 'rgba(255, 0, 0, 0.15)'; // Red under-glow ghost
+            ctx.fillText(activeText, (Math.random() - 0.5) * 10, (Math.random() - 0.5) * 10);
+
+            // Sharp, high-contrast foreground text layer
+            ctx.fillStyle = '#ffffff';
+            ctx.fillText(activeText, 0, 0);
+
+            // Slanted background graphics (Parental advisory aesthetic bars)
+            if (shakeIntensity > 10) {
+                ctx.fillStyle = 'rgba(255, 255, 255, 0.05)';
+                ctx.fillRect(-canvas.width, -40, canvas.width * 2, 80);
+            }
+
+            ctx.restore();
+
+            requestAnimationFrame(animate);
+        }
+
+        window.addEventListener('resize', () => {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+        });
+
+        animate();
+    </script>
+</body>
+</html>

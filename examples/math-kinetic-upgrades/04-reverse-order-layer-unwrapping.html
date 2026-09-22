@@ -1,0 +1,24 @@
+<!doctype html><html><head><meta charset="utf-8"><title>Reverse Order Layer Unwrapping</title><style>html,body{margin:0;height:100%;background:#0a0807;display:grid;place-items:center;overflow:hidden}canvas{width:min(100vw,960px);height:auto;box-shadow:0 30px 90px #000}</style></head><body><canvas id="c" width="960" height="540"></canvas><script>
+const c=document.getElementById('c'),x=c.getContext('2d'),W=c.width,H=c.height,CX=W/2,CY=245;
+const clamp=t=>Math.max(0,Math.min(1,t)),out=t=>1-Math.pow(1-t,3),io=t=>t<.5?4*t*t*t:1-Math.pow(-2*t+2,3)/2;
+const D=9.1;
+function text(s,px,py,size,a=1,color='#fff5e8',blur=0){x.save();x.globalAlpha=a;x.font=`900 ${size}px Consolas,monospace`;x.textAlign='center';x.textBaseline='middle';x.fillStyle=color;x.shadowColor=color;x.shadowBlur=blur;x.fillText(s,px,py);x.restore()}
+function bracket(px,py,w,h,a,color,tear=0){x.save();x.globalAlpha=a;x.translate(px+tear*540,py-tear*110);x.rotate(tear*.48);x.strokeStyle=color;x.lineWidth=5;x.beginPath();x.moveTo(-w/2+24,-h/2);x.lineTo(-w/2,-h/2);x.lineTo(-w/2,h/2);x.lineTo(-w/2+24,h/2);x.moveTo(w/2-24,-h/2);x.lineTo(w/2,-h/2);x.lineTo(w/2,h/2);x.lineTo(w/2-24,h/2);x.stroke();x.restore()}
+function draw(){requestAnimationFrame(draw);let t=(performance.now()/1000)%D;x.fillStyle='#0a0807';x.fillRect(0,0,W,H);let gr=x.createRadialGradient(CX,CY,20,CX,CY,430);gr.addColorStop(0,'rgba(120,78,42,.15)');gr.addColorStop(1,'rgba(0,0,0,.78)');x.fillStyle=gr;x.fillRect(0,0,W,H);
+const enter=clamp(t/.9),outer=clamp((t-1.8)/1.25),inner=clamp((t-3.6)/1.25),camera=clamp((t-5.1)/1.0),solve=clamp((t-6.0)/.9),exit=clamp((t-8.0)/.8);let aa=1-exit;
+// nested algebraic wrappers, not onion rings. For 2X-5=15, -5 is the outer transform, ×2 the inner.
+let camScale=1+.7*out(camera);x.save();x.translate(CX,CY);x.scale(camScale,camScale);x.translate(-CX,-CY);
+// outer -5 wrapper peels first
+bracket(CX,CY,430,180,out(enter)*(1-out(outer)*.95)*aa,'#f2a65a',io(outer));text('− 5',CX+185,CY-105,35,out(enter)*(1-out(outer))*.95*aa,'#f2a65a',12);
+// inner ×2 remains after outer disappears, then gets stripped
+bracket(CX,CY,280,135,out(enter)*(1-out(inner)*.95)*aa,'#7ad6ff',io(inner));text('× 2',CX+115,CY-78,31,out(enter)*(1-out(inner))*.95*aa,'#7ad6ff',12);
+text('X',CX,CY,82,out(enter)*aa,'#fff9f0',18);
+x.restore();
+// operator receipts fire to BOTH SIDES as each wrapper is removed
+if(outer>0){let e=out(outer);text('+5',180+e*120,420,38,(1-inner*.4)*aa,'#f2a65a',14);text('+5',780-e*120,420,38,(1-inner*.4)*aa,'#f2a65a',14);}
+if(inner>0){let e=out(inner);text('÷2',210+e*90,465,38,aa,'#7ad6ff',14);text('÷2',750-e*90,465,38,aa,'#7ad6ff',14);}
+// camera zoom after wrappers are gone: X becomes target, answer snaps in
+if(solve>0){let e=out(solve);text('X',410,245,84,aa,'#fff9f0',24);text('=',500,245,64,e*aa,'#d7d1c9',8);text('10',600-(1-e)*120,245,84,e*aa,'#fff9f0',24);}
+let caption=clamp((t-.7)/.5)*(1-exit);x.save();x.globalAlpha=caption;x.textAlign='center';x.font='800 24px Arial,sans-serif';x.fillStyle='#d8cabc';x.fillText('UNDO OUTER TRANSFORM → THEN INNER TRANSFORM',CX,72);x.restore();}
+draw();
+</script></body></html>

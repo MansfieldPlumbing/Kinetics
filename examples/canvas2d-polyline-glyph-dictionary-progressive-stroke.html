@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 2D Polyline Glyph Dictionary with Progressive Stroke Drawing</title>
+    <style>
+        body { 
+            margin: 0; 
+            background-color: #050505; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+        }
+        canvas { 
+            background-color: #000000;
+            border: 1px solid #1a1a1a; 
+        }
+    </style>
+</head>
+<body>
+    <canvas id="renderTarget" width="600" height="400"></canvas>
+
+    <script>
+        const VectorStrokeDictionary = {
+            'A': [
+                [[0.5, 0.0], [0.1, 1.0]],
+                [[0.5, 0.0], [0.9, 1.0]],
+                [[0.3, 0.6], [0.7, 0.6]]
+            ],
+            'B': [
+                [[0.2, 0.0], [0.2, 1.0]],
+                [[0.2, 0.0], [0.7, 0.0], [0.8, 0.25], [0.7, 0.5], [0.2, 0.5]],
+                [[0.2, 0.5], [0.8, 0.5], [0.9, 0.75], [0.8, 1.0], [0.2, 1.0]]
+            ],
+            'C': [
+                [[0.8, 0.2], [0.6, 0.0], [0.3, 0.0], [0.1, 0.3], 
+                 [0.1, 0.7], [0.3, 1.0], [0.6, 1.0], [0.8, 0.8]]
+            ]
+        };
+
+        class VectorRenderer {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                
+                this.progress = 0.0;
+                this.animationSpeed = 0.005;
+                this.glyphScale = 200;
+                this.offsetX = (this.canvas.width - this.glyphScale) / 2;
+                this.offsetY = (this.canvas.height - this.glyphScale) / 2;
+                
+                this.currentGlyph = 'B';
+                
+                this.executeRenderLoop = this.executeRenderLoop.bind(this);
+                requestAnimationFrame(this.executeRenderLoop);
+            }
+
+            calculateStrokeState(characterStrokes, globalProgress) {
+                let totalSegments = 0;
+                const segmentLengths = [];
+
+                // Precompute segment distribution
+                for (let s = 0; s < characterStrokes.length; s++) {
+                    const strokeLengths = [];
+                    for (let p = 0; p < characterStrokes[s].length - 1; p++) {
+                        strokeLengths.push(1); // Standardized weight per segment
+                        totalSegments++;
+                    }
+                    segmentLengths.push(strokeLengths);
+                }
+
+                const targetSegmentIndex = globalProgress * totalSegments;
+                let currentSegmentCount = 0;
+
+                for (let s = 0; s < characterStrokes.length; s++) {
+                    for (let p = 0; p < characterStrokes[s].length - 1; p++) {
+                        if (currentSegmentCount + 1 >= targetSegmentIndex) {
+                            const localProgress = targetSegmentIndex - currentSegmentCount;
+                            return { 
+                                strokeIndex: s, 
+                                pointIndex: p, 
+                                localProgress: Math.max(0, Math.min(1, localProgress)) 
+                            };
+                        }
+                        currentSegmentCount++;
+                    }
+                }
+                
+                return { 
+                    strokeIndex: characterStrokes.length - 1, 
+                    pointIndex: characterStrokes[characterStrokes.length - 1].length - 2, 
+                    localProgress: 1.0 
+                };
+            }
+
+            executeRenderLoop() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                this.ctx.strokeStyle = '#00ffcc';
+                this.ctx.lineWidth = 2;
+                this.ctx.lineCap = 'round';
+                this.ctx.lineJoin = 'round';
+
+                const strokes = VectorStrokeDictionary[this.currentGlyph];
+                const state = this.calculateStrokeState(strokes, this.progress);
+
+                for (let s = 0; s <= state.strokeIndex; s++) {
+                    this.ctx.beginPath();
+                    
+                    const points = strokes[s];
+                    const maxPoint = (s === state.strokeIndex) ? state.pointIndex : points.length - 2;
+
+                    // Draw completed segments
+                    this.ctx.moveTo(
+                        this.offsetX + points[0][0] * this.glyphScale, 
+                        this.offsetY + points[0][1] * this.glyphScale
+                    );
+
+                    for (let p = 0; p <= maxPoint; p++) {
+                        let nextX = points[p + 1][0];
+                        let nextY = points[p + 1][1];
+
+                        // Interpolate partial segment
+                        if (s === state.strokeIndex && p === state.pointIndex && state.localProgress < 1.0) {
+                            const currX = points[p][0];
+                            const currY = points[p][1];
+                            nextX = currX + (nextX - currX) * state.localProgress;
+                            nextY = currY + (nextY - currY) * state.localProgress;
+                        }
+
+                        this.ctx.lineTo(
+                            this.offsetX + nextX * this.glyphScale, 
+                            this.offsetY + nextY * this.glyphScale
+                        );
+                    }
+                    this.ctx.stroke();
+                }
+
+                // Advance animation state
+                this.progress += this.animationSpeed;
+                if (this.progress > 1.2) { 
+                    this.progress = 0; 
+                    const keys = Object.keys(VectorStrokeDictionary);
+                    const currentIndex = keys.indexOf(this.currentGlyph);
+                    this.currentGlyph = keys[(currentIndex + 1) % keys.length];
+                }
+
+                requestAnimationFrame(this.executeRenderLoop);
+            }
+        }
+
+        window.onload = () => new VectorRenderer('renderTarget');
+    </script>
+</body>
+</html>

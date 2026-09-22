@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Canvas 2D Split-Flap Character Vertical-Scale Animation</title>
+    <style>
+        body { 
+            margin: 0; 
+            background-color: #050505; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
+            height: 100vh; 
+        }
+        canvas { 
+            background-color: #000000;
+        }
+    </style>
+</head>
+<body>
+    <canvas id="splitFlapTarget" width="400" height="400"></canvas>
+
+    <script>
+        class SplitFlapController {
+            constructor(canvasId) {
+                this.canvas = document.getElementById(canvasId);
+                this.ctx = this.canvas.getContext('2d');
+                
+                this.width = 160;
+                this.height = 240;
+                this.x = (this.canvas.width - this.width) / 2;
+                this.y = (this.canvas.height - this.height) / 2;
+                
+                this.progress = 0.0;
+                this.animationSpeed = 0.015;
+                
+                this.charPrevious = 'A';
+                this.charNext = 'B';
+                
+                this.executeRenderLoop = this.executeRenderLoop.bind(this);
+                requestAnimationFrame(this.executeRenderLoop);
+            }
+
+            drawCardSegment(x, y, width, height, character, alignment, scaleY) {
+                this.ctx.save();
+                
+                const hingeY = alignment === 'top' ? y + height : y;
+                
+                this.ctx.translate(x + width / 2, hingeY);
+                this.ctx.scale(1, Math.abs(scaleY));
+                this.ctx.translate(-(x + width / 2), -hingeY);
+
+                // Card base
+                this.ctx.beginPath();
+                this.ctx.rect(x, y, width, height);
+                this.ctx.fillStyle = '#111111';
+                this.ctx.fill();
+                this.ctx.clip();
+
+                // Typography rendering
+                this.ctx.fillStyle = '#E0E0E0';
+                this.ctx.font = `bold ${height * 1.5}px monospace`;
+                this.ctx.textAlign = 'center';
+                this.ctx.textBaseline = 'middle';
+                
+                const textY = alignment === 'top' ? y + height : y;
+                this.ctx.fillText(character, x + width / 2, textY);
+
+                // Geometric shadowing
+                if (scaleY < 1.0) {
+                    const shadowIntensity = (1.0 - scaleY) * 0.7;
+                    this.ctx.fillStyle = `rgba(0, 0, 0, ${shadowIntensity})`;
+                    this.ctx.fillRect(x, y, width, height);
+                }
+
+                // Hinge line / division gap
+                this.ctx.beginPath();
+                this.ctx.moveTo(x, hingeY);
+                this.ctx.lineTo(x + width, hingeY);
+                this.ctx.strokeStyle = '#000000';
+                this.ctx.lineWidth = 2;
+                this.ctx.stroke();
+
+                this.ctx.restore();
+            }
+
+            renderFrame() {
+                const halfHeight = this.height / 2;
+
+                // Render static backplates
+                this.drawCardSegment(this.x, this.y, this.width, halfHeight, this.charNext, 'top', 1.0);
+                this.drawCardSegment(this.x, this.y + halfHeight, this.width, halfHeight, this.charPrevious, 'bottom', 1.0);
+
+                // Render dynamic rotating element
+                if (this.progress <= 0.5) {
+                    const scaleY = Math.cos(this.progress * Math.PI); 
+                    this.drawCardSegment(this.x, this.y, this.width, halfHeight, this.charPrevious, 'top', scaleY);
+                } else {
+                    const scaleY = Math.cos((1.0 - this.progress) * Math.PI); 
+                    this.drawCardSegment(this.x, this.y + halfHeight, this.width, halfHeight, this.charNext, 'bottom', scaleY);
+                }
+            }
+
+            executeRenderLoop() {
+                this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+                
+                this.renderFrame();
+
+                this.progress += this.animationSpeed;
+                
+                // Animation reset trigger
+                if (this.progress >= 1.0) {
+                    this.progress = 0.0;
+                    this.charPrevious = this.charNext;
+                    this.charNext = String.fromCharCode(this.charNext.charCodeAt(0) + 1);
+                    if (this.charNext > 'Z') this.charNext = 'A';
+                }
+
+                // Add delay at rest state
+                if (this.progress === 0.0) {
+                    setTimeout(() => {
+                        requestAnimationFrame(this.executeRenderLoop);
+                    }, 500);
+                } else {
+                    requestAnimationFrame(this.executeRenderLoop);
+                }
+            }
+        }
+
+        window.onload = () => new SplitFlapController('splitFlapTarget');
+    </script>
+</body>
+</html>

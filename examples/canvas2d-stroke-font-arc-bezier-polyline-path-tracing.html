@@ -1,0 +1,890 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Canvas 2D Stroke Font Arc, Bezier, and Polyline Path Tracing</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: #040608;
+      color: #c0d0d8;
+      font-family: 'Consolas', 'Monaco', 'Courier New', monospace;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+      padding: 16px;
+      overflow-x: hidden;
+    }
+
+    #stage {
+      position: relative;
+      border: 1px solid #142834;
+      border-radius: 4px;
+      box-shadow: 0 0 60px rgba(0, 255, 200, 0.07);
+      background: #020305;
+      overflow: hidden;
+    }
+
+    canvas {
+      display: block;
+    }
+
+    .telemetry-overlay {
+      position: absolute;
+      top: 10px;
+      left: 12px;
+      pointer-events: none;
+      font-size: 11px;
+      letter-spacing: 0.08em;
+      color: rgba(0, 255, 200, 0.7);
+      line-height: 1.45;
+      text-shadow: 0 0 6px rgba(0, 255, 200, 0.4);
+    }
+
+    .panel {
+      margin-top: 14px;
+      width: 1000px;
+      max-width: 95vw;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      background: #080d12;
+      border: 1px solid #162430;
+      padding: 12px 16px;
+      border-radius: 4px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    input[type="text"] {
+      flex: 1;
+      background: #04070a;
+      border: 1px solid #1e3a4a;
+      color: #00ffc8;
+      padding: 8px 12px;
+      font-family: inherit;
+      font-size: 14px;
+      border-radius: 3px;
+      outline: none;
+      box-shadow: inset 0 0 8px rgba(0, 0, 0, 0.8);
+    }
+    input[type="text"]:focus {
+      border-color: #00ffc8;
+      box-shadow: 0 0 8px rgba(0, 255, 200, 0.3);
+    }
+
+    .controls-row {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      font-size: 12px;
+    }
+
+    .button-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    button {
+      background: #0d1b24;
+      border: 1px solid #00ffc844;
+      color: #00ffc8;
+      padding: 6px 12px;
+      border-radius: 3px;
+      cursor: pointer;
+      font-family: inherit;
+      font-size: 11px;
+      transition: all 0.15s ease;
+    }
+    button:hover {
+      background: #00ffc822;
+      border-color: #00ffc8;
+      box-shadow: 0 0 8px rgba(0, 255, 200, 0.4);
+    }
+
+    .slider-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: #7fa0b0;
+    }
+    input[type="range"] {
+      accent-color: #00ffc8;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body>
+
+  <div id="stage">
+    <div class="telemetry-overlay">
+      SYSTEM: GALVO_LASER_PLOTTER<br>
+      STATUS: <span id="status-label" style="color:#00ffc8;">ACTIVE_EMISSION</span><br>
+      CHAR: <span id="char-label">--</span> | STROKE: <span id="stroke-label">--</span><br>
+      ARC_LEN: <span id="arc-label">0.0</span> / <span id="total-arc-label">0.0</span> px<br>
+      GALVO HEAD: [<span id="head-x">0.0</span>, <span id="head-y">0.0</span>]
+    </div>
+    <canvas id="laserCanvas" width="1000" height="520"></canvas>
+  </div>
+
+  <div class="panel">
+    <div class="input-row">
+      <input type="text" id="textInput" value="The Quick Brown Fox 2026!"/>
+      <button id="btn-fire">RE-STRIKE (WRITE)</button>
+    </div>
+    <div class="controls-row">
+      <div class="button-group">
+        <button id="btn-preset-caps">UPPERCASE [A-Z]</button>
+        <button id="btn-preset-lower">LOWERCASE [a-z]</button>
+        <button id="btn-preset-digits">NUMERALS [0-9]</button>
+        <button id="btn-preset-pangram">PANGRAM</button>
+        <button id="btn-toggle-blanking">TOGGLE BLANKING</button>
+      </div>
+      <div class="slider-container">
+        <label for="speedSlider">FEED RATE:</label>
+        <input type="range" id="speedSlider" min="200" max="3000" step="50" value="950">
+        <span id="speedVal">950 px/s</span>
+      </div>
+    </div>
+  </div>
+
+<script>
+/**
+ * STROKE FONT WITH ARC, BEZIER, AND POLYLINE PATH TRACING
+ * ----------------------------------------------------------------------
+ * Mathematical Primitives:
+ *  - L(x1, y1, x2, y2): Straight chord
+ *  - ARC(cx, cy, rx, ry, a0, a1, ccw, steps): Elliptical radial sweeps
+ *  - BEZ(p0, p1, p2, p3, steps): Cubic Bézier for serpentine curves
+ */
+
+function L(x1, y1, x2, y2) {
+  return [{ x: x1, y: y1 }, { x: x2, y: y2 }];
+}
+
+function ARC(cx, cy, rx, ry, a0, a1, ccw = false, steps = 10) {
+  const pts = [];
+  let span = a1 - a0;
+  if (!ccw && span < 0) span += Math.PI * 2;
+  if (ccw && span > 0) span -= Math.PI * 2;
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const a = a0 + span * t;
+    pts.push({ x: cx + rx * Math.cos(a), y: cy + ry * Math.sin(a) });
+  }
+  return pts;
+}
+
+function BEZ(p0, p1, p2, p3, steps = 10) {
+  const pts = [];
+  for (let i = 0; i <= steps; i++) {
+    const t = i / steps;
+    const u = 1 - t;
+    pts.push({
+      x: u*u*u*p0.x + 3*u*u*t*p1.x + 3*u*t*t*p2.x + t*t*t*p3.x,
+      y: u*u*u*p0.y + 3*u*u*t*p1.y + 3*u*t*t*p2.y + t*t*t*p3.y
+    });
+  }
+  return pts;
+}
+
+// ----------------------------------------------------------------------
+// GLYPH SKELETON DICTIONARY (Standard Print Manuscripts)
+// Normalized box: Width ~ 0.7, Cap Baseline = 1.0, Cap Top = 0.0,
+// Midline = 0.5, x-height = 0.40, Descenders = 1.35
+// ----------------------------------------------------------------------
+const FONT = {
+  // Uppercase Letters
+  'A': [
+    L(0.35, 0.0, 0.08, 1.0),
+    L(0.35, 0.0, 0.62, 1.0),
+    L(0.18, 0.65, 0.52, 0.65)
+  ],
+  'B': [
+    L(0.15, 0.0, 0.15, 1.0),
+    ARC(0.15, 0.25, 0.40, 0.25, -Math.PI/2, Math.PI/2, false, 8),
+    ARC(0.15, 0.75, 0.44, 0.25, -Math.PI/2, Math.PI/2, false, 8)
+  ],
+  'C': [
+    ARC(0.42, 0.5, 0.32, 0.5, -0.85, -5.43, true, 16)
+  ],
+  'D': [
+    L(0.15, 0.0, 0.15, 1.0),
+    ARC(0.15, 0.5, 0.50, 0.5, -Math.PI/2, Math.PI/2, false, 12)
+  ],
+  'E': [
+    L(0.15, 0.0, 0.15, 1.0),
+    L(0.15, 0.0, 0.65, 0.0),
+    L(0.15, 0.5, 0.55, 0.5),
+    L(0.15, 1.0, 0.65, 1.0)
+  ],
+  'F': [
+    L(0.15, 0.0, 0.15, 1.0),
+    L(0.15, 0.0, 0.65, 0.0),
+    L(0.15, 0.5, 0.52, 0.5)
+  ],
+  'G': [
+    ARC(0.42, 0.5, 0.32, 0.5, -0.85, -5.7, true, 16),
+    L(0.62, 0.55, 0.38, 0.55)
+  ],
+  'H': [
+    L(0.15, 0.0, 0.15, 1.0),
+    L(0.65, 0.0, 0.65, 1.0),
+    L(0.15, 0.5, 0.65, 0.5)
+  ],
+  'I': [
+    L(0.40, 0.0, 0.40, 1.0),
+    L(0.20, 0.0, 0.60, 0.0),
+    L(0.20, 1.0, 0.60, 1.0)
+  ],
+  'J': [
+    [...L(0.55, 0.0, 0.55, 0.75), ...ARC(0.35, 0.75, 0.20, 0.25, 0, Math.PI, false, 6)],
+    L(0.25, 0.0, 0.70, 0.0)
+  ],
+  'K': [
+    L(0.15, 0.0, 0.15, 1.0),
+    L(0.65, 0.0, 0.15, 0.52),
+    L(0.22, 0.48, 0.65, 1.0)
+  ],
+  'L': [
+    L(0.15, 0.0, 0.15, 1.0),
+    L(0.15, 1.0, 0.65, 1.0)
+  ],
+  'M': [
+    L(0.12, 0.0, 0.12, 1.0),
+    L(0.12, 0.0, 0.40, 0.72),
+    L(0.40, 0.72, 0.68, 0.0),
+    L(0.68, 0.0, 0.68, 1.0)
+  ],
+  'N': [
+    L(0.15, 0.0, 0.15, 1.0),
+    L(0.15, 0.0, 0.65, 1.0),
+    L(0.65, 0.0, 0.65, 1.0)
+  ],
+  'O': [
+    ARC(0.40, 0.5, 0.30, 0.5, -Math.PI/2, -Math.PI/2 - Math.PI*2, true, 18)
+  ],
+  'P': [
+    L(0.15, 0.0, 0.15, 1.0),
+    ARC(0.15, 0.28, 0.45, 0.28, -Math.PI/2, Math.PI/2, false, 10)
+  ],
+  'Q': [
+    ARC(0.40, 0.5, 0.30, 0.5, -Math.PI/2, -Math.PI/2 - Math.PI*2, true, 18),
+    L(0.42, 0.72, 0.70, 1.08)
+  ],
+  'R': [
+    L(0.15, 0.0, 0.15, 1.0),
+    ARC(0.15, 0.28, 0.45, 0.28, -Math.PI/2, Math.PI/2, false, 10),
+    L(0.35, 0.56, 0.65, 1.0)
+  ],
+  'S': [
+    [
+      ...BEZ({x:0.62, y:0.18}, {x:0.15, y:0.02}, {x:0.15, y:0.42}, {x:0.40, y:0.50}, 8),
+      ...BEZ({x:0.40, y:0.50}, {x:0.68, y:0.58}, {x:0.68, y:0.98}, {x:0.15, y:0.86}, 8)
+    ]
+  ],
+  'T': [
+    L(0.08, 0.0, 0.72, 0.0),
+    L(0.40, 0.0, 0.40, 1.0)
+  ],
+  'U': [
+    [...L(0.15, 0.0, 0.15, 0.70), ...ARC(0.40, 0.70, 0.25, 0.30, Math.PI, 0, true, 8), ...L(0.65, 0.70, 0.65, 0.0)]
+  ],
+  'V': [
+    L(0.12, 0.0, 0.40, 1.0),
+    L(0.40, 1.0, 0.68, 0.0)
+  ],
+  'W': [
+    L(0.08, 0.0, 0.24, 1.0),
+    L(0.24, 1.0, 0.40, 0.25),
+    L(0.40, 0.25, 0.56, 1.0),
+    L(0.56, 1.0, 0.72, 0.0)
+  ],
+  'X': [
+    L(0.12, 0.0, 0.68, 1.0),
+    L(0.68, 0.0, 0.12, 1.0)
+  ],
+  'Y': [
+    L(0.12, 0.0, 0.40, 0.50),
+    [...L(0.68, 0.0, 0.40, 0.50), ...L(0.40, 0.50, 0.40, 1.0)]
+  ],
+  'Z': [
+    L(0.12, 0.0, 0.68, 0.0),
+    L(0.68, 0.0, 0.12, 1.0),
+    L(0.12, 1.0, 0.68, 1.0)
+  ],
+
+  // Lowercase Letters
+  'a': [
+    ARC(0.35, 0.70, 0.22, 0.30, 0, -Math.PI*2, true, 12),
+    L(0.57, 0.40, 0.57, 1.0)
+  ],
+  'b': [
+    L(0.15, 0.0, 0.15, 1.0),
+    ARC(0.15, 0.70, 0.42, 0.30, -Math.PI/2, Math.PI/2, false, 10)
+  ],
+  'c': [
+    ARC(0.38, 0.70, 0.24, 0.30, -0.85, -5.43, true, 12)
+  ],
+  'd': [
+    ARC(0.52, 0.70, 0.40, 0.30, Math.PI/2, 3*Math.PI/2, false, 10),
+    L(0.52, 0.0, 0.52, 1.0)
+  ],
+  'e': [
+    [
+      ...L(0.15, 0.70, 0.55, 0.70),
+      ...ARC(0.35, 0.70, 0.22, 0.30, 0, -5.4, true, 12)
+    ]
+  ],
+  'f': [
+    [...ARC(0.45, 0.20, 0.20, 0.20, 0, Math.PI, true, 6), ...L(0.25, 0.20, 0.25, 1.0)],
+    L(0.12, 0.40, 0.50, 0.40)
+  ],
+  'g': [
+    ARC(0.35, 0.70, 0.22, 0.30, 0, -Math.PI*2, true, 12),
+    [...L(0.57, 0.40, 0.57, 1.15), ...ARC(0.37, 1.15, 0.20, 0.20, 0, Math.PI, false, 6)]
+  ],
+  'h': [
+    L(0.15, 0.0, 0.15, 1.0),
+    [...ARC(0.38, 0.60, 0.23, 0.20, Math.PI, 0, false, 8), ...L(0.61, 0.60, 0.61, 1.0)]
+  ],
+  'i': [
+    L(0.35, 0.40, 0.35, 1.0),
+    L(0.35, 0.18, 0.35, 0.22)
+  ],
+  'j': [
+    [...L(0.45, 0.40, 0.45, 1.15), ...ARC(0.25, 1.15, 0.20, 0.20, 0, Math.PI, false, 6)],
+    L(0.45, 0.18, 0.45, 0.22)
+  ],
+  'k': [
+    L(0.15, 0.0, 0.15, 1.0),
+    L(0.55, 0.40, 0.18, 0.68),
+    L(0.25, 0.62, 0.58, 1.0)
+  ],
+  'l': [
+    L(0.35, 0.0, 0.35, 1.0)
+  ],
+  'm': [
+    L(0.12, 0.40, 0.12, 1.0),
+    [...ARC(0.28, 0.60, 0.16, 0.20, Math.PI, 0, false, 6), ...L(0.44, 0.60, 0.44, 1.0)],
+    [...ARC(0.60, 0.60, 0.16, 0.20, Math.PI, 0, false, 6), ...L(0.76, 0.60, 0.76, 1.0)]
+  ],
+  'n': [
+    L(0.15, 0.40, 0.15, 1.0),
+    [...ARC(0.38, 0.60, 0.23, 0.20, Math.PI, 0, false, 8), ...L(0.61, 0.60, 0.61, 1.0)]
+  ],
+  'o': [
+    ARC(0.35, 0.70, 0.22, 0.30, -Math.PI/2, -Math.PI/2 - Math.PI*2, true, 14)
+  ],
+  'p': [
+    L(0.15, 0.40, 0.15, 1.35),
+    ARC(0.15, 0.70, 0.42, 0.30, -Math.PI/2, Math.PI/2, false, 10)
+  ],
+  'q': [
+    ARC(0.52, 0.70, 0.38, 0.30, Math.PI/2, 3*Math.PI/2, false, 10),
+    [...L(0.52, 0.40, 0.52, 1.35), ...L(0.52, 1.35, 0.65, 1.25)]
+  ],
+  'r': [
+    L(0.18, 0.40, 0.18, 1.0),
+    ARC(0.38, 0.60, 0.20, 0.20, Math.PI, 0.2, false, 6)
+  ],
+  's': [
+    [
+      ...BEZ({x:0.52, y:0.52}, {x:0.18, y:0.42}, {x:0.18, y:0.65}, {x:0.35, y:0.69}, 6),
+      ...BEZ({x:0.35, y:0.69}, {x:0.55, y:0.73}, {x:0.55, y:0.96}, {x:0.20, y:0.88}, 6)
+    ]
+  ],
+  't': [
+    [...L(0.30, 0.15, 0.30, 0.88), ...ARC(0.42, 0.88, 0.12, 0.12, Math.PI, 0, true, 4)],
+    L(0.15, 0.40, 0.52, 0.40)
+  ],
+  'u': [
+    [...L(0.15, 0.40, 0.15, 0.80), ...ARC(0.35, 0.80, 0.20, 0.20, Math.PI, 0, true, 6), ...L(0.55, 0.80, 0.55, 0.40)],
+    L(0.55, 0.40, 0.55, 1.0)
+  ],
+  'v': [
+    L(0.15, 0.40, 0.35, 1.0),
+    L(0.35, 1.0, 0.55, 0.40)
+  ],
+  'w': [
+    L(0.08, 0.40, 0.22, 1.0),
+    L(0.22, 1.0, 0.36, 0.55),
+    L(0.36, 0.55, 0.50, 1.0),
+    L(0.50, 1.0, 0.64, 0.40)
+  ],
+  'x': [
+    L(0.15, 0.40, 0.55, 1.0),
+    L(0.55, 0.40, 0.15, 1.0)
+  ],
+  'y': [
+    L(0.15, 0.40, 0.35, 0.85),
+    L(0.55, 0.40, 0.20, 1.35)
+  ],
+  'z': [
+    L(0.15, 0.40, 0.55, 0.40),
+    L(0.55, 0.40, 0.15, 1.0),
+    L(0.15, 1.0, 0.55, 1.0)
+  ],
+
+  // Numerals
+  '0': [
+    ARC(0.38, 0.50, 0.28, 0.50, -Math.PI/2, -Math.PI/2 - Math.PI*2, true, 18)
+  ],
+  '1': [
+    L(0.20, 0.25, 0.38, 0.0),
+    L(0.38, 0.0, 0.38, 1.0),
+    L(0.18, 1.0, 0.58, 1.0)
+  ],
+  '2': [
+    [...ARC(0.38, 0.28, 0.26, 0.28, Math.PI, 0, false, 8), ...L(0.64, 0.28, 0.15, 1.0)],
+    L(0.15, 1.0, 0.65, 1.0)
+  ],
+  '3': [
+    L(0.15, 0.0, 0.60, 0.0),
+    L(0.60, 0.0, 0.35, 0.45),
+    ARC(0.35, 0.72, 0.28, 0.28, -Math.PI/2, Math.PI/2, false, 8)
+  ],
+  '4': [
+    L(0.48, 0.0, 0.12, 0.68),
+    L(0.12, 0.68, 0.68, 0.68),
+    L(0.48, 0.20, 0.48, 1.0)
+  ],
+  '5': [
+    L(0.58, 0.0, 0.18, 0.0),
+    L(0.18, 0.0, 0.18, 0.45),
+    ARC(0.35, 0.72, 0.28, 0.28, -Math.PI/2, Math.PI/2, false, 10)
+  ],
+  '6': [
+    [
+      ...ARC(0.42, 0.50, 0.28, 0.50, -0.6, -Math.PI, true, 8),
+      ...ARC(0.38, 0.70, 0.26, 0.30, Math.PI, -Math.PI, true, 12)
+    ]
+  ],
+  '7': [
+    L(0.15, 0.0, 0.65, 0.0),
+    L(0.65, 0.0, 0.25, 1.0)
+  ],
+  '8': [
+    [
+      ...ARC(0.38, 0.26, 0.22, 0.26, -Math.PI/2, Math.PI*1.5, false, 10),
+      ...ARC(0.38, 0.74, 0.25, 0.26, -Math.PI/2, -Math.PI*2.5, true, 12)
+    ]
+  ],
+  '9': [
+    ARC(0.38, 0.32, 0.24, 0.28, 0, -Math.PI*2, true, 12),
+    [...L(0.62, 0.32, 0.62, 0.80), ...ARC(0.42, 0.80, 0.20, 0.20, 0, Math.PI, false, 6)]
+  ],
+
+  // Basic Punctuation
+  ' ': [],
+  '.': [ L(0.35, 0.94, 0.35, 0.98) ],
+  ',': [ [...L(0.35, 0.88, 0.35, 0.98), ...L(0.35, 0.98, 0.25, 1.15)] ],
+  '!': [ L(0.35, 0.05, 0.35, 0.70), L(0.35, 0.92, 0.35, 0.98) ],
+  '?': [
+    [...ARC(0.38, 0.26, 0.24, 0.26, Math.PI, 0, false, 8), ...L(0.62, 0.26, 0.38, 0.50), ...L(0.38, 0.50, 0.38, 0.70)],
+    L(0.38, 0.92, 0.38, 0.98)
+  ],
+  '-': [ L(0.15, 0.50, 0.55, 0.50) ],
+  ':': [ L(0.35, 0.45, 0.35, 0.49), L(0.35, 0.92, 0.35, 0.98) ]
+};
+
+// ----------------------------------------------------------------------
+// TEXT COMPILER (Continuous Arc-Length Metric Pipeline)
+// ----------------------------------------------------------------------
+class TextPathCompiler {
+  static compile(text, canvasWidth, canvasHeight) {
+    const glyphW = 32;
+    const glyphH = 46;
+    const tracking = 10;
+    const spaceW = 20;
+    const lineH = 68;
+    const marginX = 60;
+    const maxWidth = canvasWidth - marginX * 2;
+
+    const words = text.split(' ');
+    const lines = [];
+    let curLine = [];
+    let curWidth = 0;
+
+    words.forEach(w => {
+      let wordW = 0;
+      for (let ch of w) {
+        wordW += glyphW + tracking;
+      }
+      if (curWidth + wordW > maxWidth && curLine.length > 0) {
+        lines.push(curLine);
+        curLine = [w];
+        curWidth = wordW + spaceW;
+      } else {
+        curLine.push(w);
+        curWidth += wordW + spaceW;
+      }
+    });
+    if (curLine.length > 0) lines.push(curLine);
+
+    const totalBlockH = lines.length * lineH;
+    let startY = (canvasHeight - totalBlockH) / 2 + 10;
+    if (startY < 45) startY = 45;
+
+    const compiledStrokes = [];
+    let globalDistance = 0;
+
+    lines.forEach((lineWords, lineIdx) => {
+      let lineTotalW = 0;
+      lineWords.forEach((w, wi) => {
+        lineTotalW += w.length * (glyphW + tracking);
+        if (wi < lineWords.length - 1) lineTotalW += spaceW;
+      });
+
+      let cursorX = (canvasWidth - lineTotalW) / 2;
+      const cursorY = startY + lineIdx * lineH;
+
+      lineWords.forEach((word, wi) => {
+        for (let ch of word) {
+          const glyphStrokes = FONT[ch] || FONT['?'];
+          glyphStrokes.forEach((stroke, sIdx) => {
+            const worldPts = stroke.map(p => ({
+              x: cursorX + p.x * glyphW,
+              y: cursorY + p.y * glyphH
+            }));
+
+            const segments = [];
+            let sLen = 0;
+            for (let i = 0; i < worldPts.length - 1; i++) {
+              const p0 = worldPts[i];
+              const p1 = worldPts[i + 1];
+              const len = Math.hypot(p1.x - p0.x, p1.y - p0.y);
+              segments.push({
+                p0,
+                p1,
+                len,
+                accumStart: sLen,
+                accumEnd: sLen + len
+              });
+              sLen += len;
+            }
+
+            if (segments.length > 0) {
+              compiledStrokes.push({
+                char: ch,
+                strokeIdx: sIdx + 1,
+                totalStrokes: glyphStrokes.length,
+                pts: worldPts,
+                segments,
+                totalLength: sLen,
+                globalStart: globalDistance,
+                globalEnd: globalDistance + sLen
+              });
+              globalDistance += sLen;
+            }
+          });
+          cursorX += glyphW + tracking;
+        }
+        cursorX += spaceW;
+      });
+    });
+
+    return { strokes: compiledStrokes, totalPathLength: globalDistance };
+  }
+}
+
+// ----------------------------------------------------------------------
+// PARTICLE SPARK SYSTEM (Galvo Ablation / Micro-speckle)
+// ----------------------------------------------------------------------
+class SparkEmitter {
+  constructor() {
+    this.sparks = [];
+  }
+  emit(x, y, vx, vy, count = 2) {
+    for (let i = 0; i < count; i++) {
+      const angle = Math.atan2(vy, vx) + Math.PI + (Math.random() - 0.5) * 2.0;
+      const spd = Math.random() * 50 + 15;
+      this.sparks.push({
+        x, y,
+        vx: Math.cos(angle) * spd,
+        vy: Math.sin(angle) * spd,
+        life: 1.0,
+        decay: Math.random() * 2.8 + 2.2,
+        size: Math.random() * 1.6 + 0.8
+      });
+    }
+  }
+  update(dt) {
+    for (let i = this.sparks.length - 1; i >= 0; i--) {
+      const s = this.sparks[i];
+      s.x += s.vx * dt;
+      s.y += s.vy * dt;
+      s.life -= s.decay * dt;
+      if (s.life <= 0) this.sparks.splice(i, 1);
+    }
+  }
+  draw(ctx) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    this.sparks.forEach(s => {
+      ctx.fillStyle = `rgba(200, 255, 245, ${s.life * 0.9})`;
+      ctx.beginPath();
+      ctx.arc(s.x, s.y, s.size, 0, Math.PI * 2);
+      ctx.fill();
+    });
+    ctx.restore();
+  }
+}
+
+// ----------------------------------------------------------------------
+// RUNTIME SETUP & ANIMATION LOOP
+// ----------------------------------------------------------------------
+const canvas = document.getElementById('laserCanvas');
+const ctx = canvas.getContext('2d');
+const textInput = document.getElementById('textInput');
+const speedSlider = document.getElementById('speedSlider');
+const speedVal = document.getElementById('speedVal');
+
+const statusLabel = document.getElementById('status-label');
+const charLabel = document.getElementById('char-label');
+const strokeLabel = document.getElementById('stroke-label');
+const arcLabel = document.getElementById('arc-label');
+const totalArcLabel = document.getElementById('total-arc-label');
+const headXLabel = document.getElementById('head-x');
+const headYLabel = document.getElementById('head-y');
+
+const emitter = new SparkEmitter();
+let showBlanking = true;
+let speed = 950;
+let currentProgress = 0;
+let lastTime = performance.now();
+let compiledData = { strokes: [], totalPathLength: 0 };
+
+function rebuildPath() {
+  compiledData = TextPathCompiler.compile(textInput.value, canvas.width, canvas.height);
+  currentProgress = 0;
+  emitter.sparks = [];
+  totalArcLabel.textContent = compiledData.totalPathLength.toFixed(1);
+  statusLabel.textContent = "ACTIVE_EMISSION";
+  statusLabel.style.color = "#00ffc8";
+}
+
+function sampleHead(s) {
+  const { strokes, totalPathLength } = compiledData;
+  for (let i = 0; i < strokes.length; i++) {
+    const stroke = strokes[i];
+    if (s >= stroke.globalStart && s <= stroke.globalEnd) {
+      const localS = s - stroke.globalStart;
+      for (const seg of stroke.segments) {
+        if (localS >= seg.accumStart && localS <= seg.accumEnd) {
+          const t = seg.len === 0 ? 0 : (localS - seg.accumStart) / seg.len;
+          return {
+            x: seg.p0.x + (seg.p1.x - seg.p0.x) * t,
+            y: seg.p0.y + (seg.p1.y - seg.p0.y) * t,
+            nx: (seg.p1.x - seg.p0.x) / (seg.len || 1),
+            ny: (seg.p1.y - seg.p0.y) / (seg.len || 1),
+            char: stroke.char,
+            strokeNum: `${stroke.strokeIdx}/${stroke.totalStrokes}`
+          };
+        }
+      }
+    }
+  }
+  if (strokes.length > 0) {
+    const last = strokes[strokes.length - 1];
+    const pt = last.pts[last.pts.length - 1];
+    return { x: pt.x, y: pt.y, nx: 0, ny: 0, char: "DONE", strokeNum: "--" };
+  }
+  return { x: 0, y: 0, nx: 0, ny: 0, char: "--", strokeNum: "--" };
+}
+
+function render(now) {
+  const dt = Math.min((now - lastTime) / 1000, 0.05);
+  lastTime = now;
+
+  const { strokes, totalPathLength } = compiledData;
+
+  if (currentProgress < totalPathLength) {
+    currentProgress += speed * dt;
+    if (currentProgress > totalPathLength) currentProgress = totalPathLength;
+  } else {
+    statusLabel.textContent = "IDLE (SCAN_COMPLETE)";
+    statusLabel.style.color = "#58988a";
+  }
+
+  const head = sampleHead(currentProgress);
+
+  // Spark Generation
+  if (currentProgress < totalPathLength) {
+    emitter.emit(head.x, head.y, head.nx * speed, head.ny * speed, 1);
+  }
+  emitter.update(dt);
+
+  // Telemetry HUD Updates
+  arcLabel.textContent = currentProgress.toFixed(1);
+  charLabel.textContent = head.char;
+  strokeLabel.textContent = head.strokeNum;
+  headXLabel.textContent = head.x.toFixed(1);
+  headYLabel.textContent = head.y.toFixed(1);
+
+  // Background Clear (Phosphor retention)
+  ctx.fillStyle = "rgba(2, 3, 5, 0.84)";
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // PASS 1: Galvo Transit / Blanking flyback
+  if (showBlanking && strokes.length > 1) {
+    ctx.save();
+    ctx.strokeStyle = "rgba(0, 255, 200, 0.07)";
+    ctx.lineWidth = 1;
+    ctx.setLineDash([2, 5]);
+    ctx.beginPath();
+    for (let i = 0; i < strokes.length - 1; i++) {
+      if (currentProgress >= strokes[i].globalEnd) {
+        const pEnd = strokes[i].pts[strokes[i].pts.length - 1];
+        const pNext = strokes[i + 1].pts[0];
+        ctx.moveTo(pEnd.x, pEnd.y);
+        ctx.lineTo(pNext.x, pNext.y);
+      }
+    }
+    ctx.stroke();
+    ctx.restore();
+  }
+
+  // PASS 2: Multi-Pass Coherent Beam Radiance
+  const passes = [
+    { width: 8.5, color: "rgba(0, 255, 200, 0.08)", blur: 14 },
+    { width: 3.2, color: "rgba(40, 255, 220, 0.40)", blur: 4 },
+    { width: 1.2, color: "rgba(255, 255, 255, 0.95)", blur: 0 }
+  ];
+
+  passes.forEach(pass => {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.strokeStyle = pass.color;
+    ctx.lineWidth = pass.width;
+    ctx.lineCap = 'round';
+    ctx.lineJoin = 'round';
+    if (pass.blur > 0) {
+      ctx.shadowColor = "rgba(0, 255, 200, 0.6)";
+      ctx.shadowBlur = pass.blur;
+    }
+
+    strokes.forEach(stroke => {
+      if (currentProgress < stroke.globalStart) return;
+
+      const visibleDist = Math.min(currentProgress - stroke.globalStart, stroke.totalLength);
+
+      ctx.beginPath();
+      ctx.moveTo(stroke.pts[0].x, stroke.pts[0].y);
+
+      for (const seg of stroke.segments) {
+        if (visibleDist >= seg.accumEnd) {
+          ctx.lineTo(seg.p1.x, seg.p1.y);
+        } else if (visibleDist > seg.accumStart) {
+          const t = (visibleDist - seg.accumStart) / seg.len;
+          ctx.lineTo(seg.p0.x + (seg.p1.x - seg.p0.x) * t, seg.p0.y + (seg.p1.y - seg.p0.y) * t);
+          break;
+        } else {
+          break;
+        }
+      }
+      ctx.stroke();
+    });
+    ctx.restore();
+  });
+
+  // PASS 3: Galvo Corner Dwell Heat Burns
+  ctx.save();
+  ctx.globalCompositeOperation = 'lighter';
+  strokes.forEach(stroke => {
+    if (currentProgress < stroke.globalStart) return;
+    stroke.segments.forEach(seg => {
+      if (currentProgress >= stroke.globalStart + seg.accumEnd) {
+        const grad = ctx.createRadialGradient(seg.p1.x, seg.p1.y, 0, seg.p1.x, seg.p1.y, 3.5);
+        grad.addColorStop(0, "rgba(255, 255, 255, 0.7)");
+        grad.addColorStop(0.5, "rgba(0, 255, 210, 0.25)");
+        grad.addColorStop(1, "rgba(0, 0, 0, 0)");
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.arc(seg.p1.x, seg.p1.y, 3.5, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    });
+  });
+  ctx.restore();
+
+  // PASS 4: Active Spot Corona & Crosshair Collimation
+  if (currentProgress < totalPathLength) {
+    ctx.save();
+    ctx.globalCompositeOperation = 'lighter';
+
+    const flare = ctx.createRadialGradient(head.x, head.y, 0, head.x, head.y, 16);
+    flare.addColorStop(0, 'rgba(255, 255, 255, 1.0)');
+    flare.addColorStop(0.15, 'rgba(120, 255, 230, 0.85)');
+    flare.addColorStop(0.4, 'rgba(0, 255, 190, 0.25)');
+    flare.addColorStop(1, 'rgba(0, 0, 0, 0)');
+    ctx.fillStyle = flare;
+    ctx.beginPath();
+    ctx.arc(head.x, head.y, 16, 0, Math.PI * 2);
+    ctx.fill();
+
+    ctx.strokeStyle = "rgba(180, 255, 240, 0.4)";
+    ctx.lineWidth = 0.8;
+    ctx.beginPath();
+    ctx.moveTo(head.x - 12, head.y); ctx.lineTo(head.x + 12, head.y);
+    ctx.moveTo(head.x, head.y - 12); ctx.lineTo(head.x, head.y + 12);
+    ctx.stroke();
+
+    ctx.restore();
+  }
+
+  // PASS 5: Micro-speckle Particles
+  emitter.draw(ctx);
+
+  requestAnimationFrame(render);
+}
+
+// ----------------------------------------------------------------------
+// EVENT LISTENERS & PRESETS
+// ----------------------------------------------------------------------
+document.getElementById('btn-fire').addEventListener('click', rebuildPath);
+textInput.addEventListener('keydown', e => { if (e.key === 'Enter') rebuildPath(); });
+
+document.getElementById('btn-preset-caps').addEventListener('click', () => {
+  textInput.value = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  rebuildPath();
+});
+
+document.getElementById('btn-preset-lower').addEventListener('click', () => {
+  textInput.value = "abcdefghijklmnopqrstuvwxyz";
+  rebuildPath();
+});
+
+document.getElementById('btn-preset-digits').addEventListener('click', () => {
+  textInput.value = "0123456789 2026";
+  rebuildPath();
+});
+
+document.getElementById('btn-preset-pangram').addEventListener('click', () => {
+  textInput.value = "The quick brown fox jumps over the lazy dog.";
+  rebuildPath();
+});
+
+document.getElementById('btn-toggle-blanking').addEventListener('click', () => {
+  showBlanking = !showBlanking;
+});
+
+speedSlider.addEventListener('input', e => {
+  speed = parseInt(e.target.value, 10);
+  speedVal.textContent = `${speed} px/s`;
+});
+
+// Initialize
+rebuildPath();
+requestAnimationFrame(render);
+</script>
+</body>
+</html>

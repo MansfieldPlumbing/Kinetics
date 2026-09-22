@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Terminal Typewriter Cursor</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #04120a;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #0d2015; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Terminal Typewriter Engine
+ * Lines type in character by character with human-like jitter timing, pause
+ * with a blinking block cursor, then backspace-delete before the next line
+ * types in — a classic CRT terminal transition.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const lines = [
+  "> initializing sequence...",
+  "> kinetic typography engine ready",
+  "> rendering frame buffer",
+  "> awaiting next cue"
+];
+let lineIndex = 0;
+let charIndex = 0;
+let state = 'typing';
+let frameCount = 0;
+let nextActionFrame = 0;
+let cursorBlink = true;
+let blinkTimer = 0;
+
+function scheduleNextChar(base, jitter) {
+  return frameCount + base + Math.floor(Math.random() * jitter);
+}
+nextActionFrame = scheduleNextChar(3, 3);
+
+function draw() {
+  ctx.fillStyle = '#04120a';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  frameCount++;
+  blinkTimer++;
+  if (blinkTimer > 26) { cursorBlink = !cursorBlink; blinkTimer = 0; }
+
+  if (state === 'typing') {
+    if (frameCount >= nextActionFrame) {
+      charIndex++;
+      if (charIndex >= lines[lineIndex].length) {
+        state = 'pause'; nextActionFrame = frameCount + 70;
+      } else {
+        nextActionFrame = scheduleNextChar(2, 5);
+      }
+    }
+  } else if (state === 'pause') {
+    if (frameCount >= nextActionFrame) { state = 'deleting'; nextActionFrame = scheduleNextChar(1, 2); }
+  } else if (state === 'deleting') {
+    if (frameCount >= nextActionFrame) {
+      charIndex--;
+      if (charIndex <= 0) {
+        charIndex = 0;
+        lineIndex = (lineIndex + 1) % lines.length;
+        state = 'typing';
+        nextActionFrame = scheduleNextChar(8, 6);
+      } else {
+        nextActionFrame = scheduleNextChar(1, 3);
+      }
+    }
+  }
+
+  const displayText = lines[lineIndex].substring(0, charIndex);
+
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.font = '28px "Consolas", "Courier New", monospace';
+  const x = 60, y = canvas.height / 2;
+
+  ctx.shadowColor = 'rgba(60,255,140,0.6)';
+  ctx.shadowBlur = 6;
+  ctx.fillStyle = '#5dffa0';
+  ctx.fillText(displayText, x, y);
+
+  const textW = ctx.measureText(displayText).width;
+  const showCursor = (state !== 'pause') || cursorBlink;
+  if (showCursor) {
+    ctx.fillStyle = '#5dffa0';
+    ctx.fillRect(x + textW + 4, y - 16, 13, 30);
+  }
+  ctx.shadowBlur = 0;
+
+  ctx.fillStyle = 'rgba(0,0,0,0.18)';
+  for (let sy = 0; sy < canvas.height; sy += 3) { ctx.fillRect(0, sy, canvas.width, 1); }
+
+  const vg = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 140, canvas.width / 2, canvas.height / 2, 560);
+  vg.addColorStop(0, 'rgba(0,0,0,0)');
+  vg.addColorStop(1, 'rgba(0,0,0,0.55)');
+  ctx.fillStyle = vg;
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

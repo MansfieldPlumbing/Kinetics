@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Equation Step Solve Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #0a0c10;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #161a22; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * Equation Step Solve Engine
+ * Each lyric line about "Let's say X plus four is sitting at a ten"
+ * pushes down a new chalkboard-style equation line beneath the last,
+ * with the term that's changing (the "-4" applied to both sides, the
+ * cancellation) glowing and animating in as it's spoken. Old lines
+ * drift up and fade like a running derivation, then the whole board
+ * wipes clean for the next problem.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const problems = [
+  {
+    setup: "X + 4 = 10",
+    steps: [
+      { line: "X + 4 = 10", note: "" },
+      { line: "X + 4 \u2212 4 = 10 \u2212 4", note: "subtract 4 from both sides" },
+      { line: "X = 6", note: "solved" }
+    ],
+    lyricLines: [
+      "Let's say X plus four is sitting at a ten,",
+      "Subtract it from both sides, lift the curse!",
+      "Ten minus four is six, so X equals six,"
+    ]
+  },
+  {
+    setup: "2X \u2212 5 = 15",
+    steps: [
+      { line: "2X \u2212 5 = 15", note: "" },
+      { line: "2X \u2212 5 + 5 = 15 + 5", note: "add 5 to both sides" },
+      { line: "2X = 20", note: "" },
+      { line: "2X \u00F7 2 = 20 \u00F7 2", note: "divide both sides by 2" },
+      { line: "X = 10", note: "solved" }
+    ],
+    lyricLines: [
+      "Two X minus five equals fifteen,",
+      "Add five to both sides, that's the first door,",
+      "Now Two X equals twenty, but we need a little more.",
+      "Divide both by two, yeah we're near the end,",
+      "X equals ten, my mathematical friend."
+    ]
+  }
+];
+
+let probIndex = 0;
+let stepIndex = 0;
+let state = 'enter';
+let stateFrame = 0;
+const DUR = { enter: 30, hold: 70, wipe: 30 };
+
+const lineHistory = [];
+const LINE_H = 68;
+
+function cubicOut(t) { return 1 - Math.pow(1 - t, 3); }
+
+function pushStep() {
+  const prob = problems[probIndex];
+  const step = prob.steps[stepIndex];
+  lineHistory.push({ text: step.line, note: step.note, y: 0, alpha: 0, glow: 1 });
+  if (lineHistory.length > 4) lineHistory.shift();
+}
+
+pushStep();
+
+function draw() {
+  ctx.fillStyle = '#0a0c10';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  // chalkboard frame
+  ctx.strokeStyle = 'rgba(120,140,110,0.25)';
+  ctx.lineWidth = 10;
+  ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+
+  stateFrame++;
+  const prob = problems[probIndex];
+
+  if (state === 'enter') {
+    const t = Math.min(stateFrame / DUR.enter, 1);
+    const e = cubicOut(t);
+    const active = lineHistory[lineHistory.length - 1];
+    active.alpha = e;
+    active.glow = 1;
+    if (t >= 1) { state = 'hold'; stateFrame = 0; }
+  } else if (state === 'hold') {
+    lineHistory.forEach((l, i) => {
+      l.glow = (i === lineHistory.length - 1) ? 0.7 + 0.3 * Math.sin(stateFrame * 0.15) : 0.15;
+    });
+    if (stateFrame >= DUR.hold) {
+      stepIndex++;
+      if (stepIndex >= prob.steps.length) {
+        state = 'wipe'; stateFrame = 0;
+      } else {
+        pushStep();
+        state = 'enter'; stateFrame = 0;
+      }
+    }
+  } else if (state === 'wipe') {
+    const t = Math.min(stateFrame / DUR.wipe, 1);
+    lineHistory.forEach(l => { l.alpha = 1 - t; });
+    if (t >= 1) {
+      lineHistory.length = 0;
+      probIndex = (probIndex + 1) % problems.length;
+      stepIndex = 0;
+      pushStep();
+      state = 'enter'; stateFrame = 0;
+    }
+  }
+
+  const baseY = canvas.height / 2 - (lineHistory.length - 1) * LINE_H / 2;
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+
+  lineHistory.forEach((l, i) => {
+    const y = baseY + i * LINE_H;
+    ctx.save();
+    ctx.globalAlpha = l.alpha;
+    ctx.font = '700 42px "Consolas", monospace';
+    ctx.shadowColor = 'rgba(255,255,255,0.9)';
+    ctx.shadowBlur = 12 * l.glow;
+    ctx.fillStyle = `rgba(255,255,255,${0.55 + 0.45 * l.glow})`;
+    ctx.fillText(l.text, canvas.width / 2, y);
+    if (l.note) {
+      ctx.font = '400 18px "Segoe UI", Arial, sans-serif';
+      ctx.shadowBlur = 0;
+      ctx.fillStyle = `rgba(255,210,90,${0.7 * l.alpha})`;
+      ctx.fillText(l.note, canvas.width / 2, y + 28);
+    }
+    ctx.restore();
+  });
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>

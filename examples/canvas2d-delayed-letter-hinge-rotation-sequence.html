@@ -1,0 +1,76 @@
+<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Canvas 2D Delayed Per-Letter Hinge-Rotation Sequence</title>
+<style>
+html,body{margin:0;height:100%;overflow:hidden;background:#070707;color:#fff;font-family:Arial,sans-serif}
+canvas{display:block;width:100vw;height:100vh}.hud{position:fixed;top:18px;left:20px;font:700 11px/1.5 monospace;letter-spacing:.12em;color:#777}.hud b{color:#fff}
+button{position:fixed;right:20px;bottom:18px;background:#0b0b0b;color:white;border:1px solid #444;padding:9px 12px;font:700 11px monospace;cursor:pointer}
+</style></head><body>
+<canvas id="c"></canvas><div class="hud"><b>DELAYED HINGE ROTATION</b><br>PER-LETTER ROTATION WITH INDEX DELAY</div><button id="hit">START SEQUENCE</button>
+<script>
+const c=document.getElementById('c'),ctx=c.getContext('2d');
+let W,H,dpr=1,epoch=performance.now(),manual=0;
+const text='HINGE ROTATION';
+function resize(){dpr=Math.min(devicePixelRatio||1,2);W=innerWidth;H=innerHeight;c.width=W*dpr;c.height=H*dpr;ctx.setTransform(dpr,0,0,dpr,0,0)}
+function clamp(x,a=0,b=1){return Math.max(a,Math.min(b,x))}
+function easeOutBack(t){const c1=1.70158,c3=c1+1;return 1+c3*Math.pow(t-1,3)+c1*Math.pow(t-1,2)}
+function tileLayout(){
+  const fs=Math.max(54,Math.min(130,W/10));
+  ctx.font=`900 ${fs}px Arial Black,Impact,sans-serif`;
+  const widths=[...text].map(ch=>ch===' '?fs*.32:ctx.measureText(ch).width*.94);
+  const total=widths.reduce((a,b)=>a+b,0);
+  let x=W/2-total/2;
+  return widths.map((w,i)=>{const o={x,w,fs,ch:text[i]};x+=w;return o});
+}
+function angleFor(i,t,n){
+  const delay=.62+i*.115;
+  const fall=clamp((t-delay)/.62);
+  const standDelay=4.35+(n-1-i)*.08;
+  const rise=clamp((t-standDelay)/.62);
+  let a=(Math.PI/2*.93)*easeOutBack(fall);
+  if(rise>0)a*=(1-easeOutBack(rise));
+  return Math.max(-.08,Math.min(Math.PI*.56,a));
+}
+function draw(now){
+  ctx.setTransform(dpr,0,0,dpr,0,0);
+  ctx.fillStyle='#070707';ctx.fillRect(0,0,W,H);
+  let t=(((now-epoch)/1000)+manual)%6.7;
+  const tiles=tileLayout(), baseline=H*.64;
+  // floor
+  ctx.strokeStyle='rgba(255,255,255,.11)';ctx.lineWidth=1;
+  ctx.beginPath();ctx.moveTo(W*.08,baseline+8);ctx.lineTo(W*.92,baseline+8);ctx.stroke();
+  for(let i=0;i<tiles.length;i++){
+    const o=tiles[i]; if(o.ch===' ')continue;
+    const a=angleFor(i,t,tiles.length);
+    const h=o.fs*1.22,w=Math.max(18,o.w*.86);
+    const impact=clamp(1-Math.abs(a-Math.PI/2*.82)/.16);
+    // contact flare just before each card reaches the floor
+    if(impact>.03){
+      ctx.save();ctx.translate(o.x+w,baseline+5);ctx.strokeStyle=`rgba(255,255,255,${impact*.32})`;
+      for(let r=0;r<5;r++){const aa=-Math.PI*.9+r*.22;ctx.beginPath();ctx.moveTo(0,0);ctx.lineTo(Math.cos(aa)*28*impact,Math.sin(aa)*28*impact);ctx.stroke();}
+      ctx.restore();
+    }
+    ctx.save();
+    ctx.translate(o.x+w*.08,baseline);
+    ctx.rotate(a);
+    // cast shadow projected opposite the falling card
+    ctx.save();ctx.globalAlpha=.22;ctx.transform(1,0,-.35,.16,8,5);ctx.fillStyle='#fff';ctx.fillRect(0,-h,w,h);ctx.restore();
+    // rigid card
+    ctx.fillStyle='#111';ctx.strokeStyle='#555';ctx.lineWidth=1.2;
+    ctx.fillRect(0,-h,w,h);ctx.strokeRect(0,-h,w,h);
+    // little bevel edge
+    ctx.fillStyle='#292929';ctx.fillRect(w-4,-h,4,h);
+    ctx.font=`900 ${o.fs*.72}px Arial Black,Impact,sans-serif`;
+    ctx.textAlign='center';ctx.textBaseline='middle';ctx.fillStyle='#fff';
+    ctx.fillText(o.ch,w/2,-h*.49);
+    ctx.restore();
+  }
+  ctx.textAlign='center';ctx.font='700 11px monospace';ctx.fillStyle='rgba(255,255,255,.42)';
+  ctx.fillText(t<.6?'INITIAL':t<3.2?'FORWARD SEQUENCE':t<4.3?'ROTATED':'REVERSE SEQUENCE',W/2,H*.82);
+  requestAnimationFrame(draw);
+}
+document.getElementById('hit').onclick=()=>{epoch=performance.now();manual=.62};
+addEventListener('pointerdown',e=>{if(e.target.tagName!=='BUTTON'){epoch=performance.now();manual=.62}});
+addEventListener('resize',resize);resize();requestAnimationFrame(draw);
+</script></body></html>

@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>VHS Glitch Tracking Typography</title>
+<style>
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    background: #000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    height: 100vh;
+    overflow: hidden;
+  }
+  canvas { display: block; border: 1px solid #1a1a1a; }
+</style>
+</head>
+<body>
+<canvas id="c" width="960" height="540"></canvas>
+<script>
+/**
+ * VHS Glitch Tracking Engine
+ * Text is sliced into scanline strips redrawn with per-strip horizontal
+ * jitter and RGB fringing, easing from noisy "tuning in" to a locked image,
+ * then a head-switching static band sweeps down to cut to the next phrase.
+ */
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+
+const off = document.createElement('canvas');
+off.width = 960; off.height = 540;
+const octx = off.getContext('2d');
+
+const phrases = ["SIGNAL LOST", "PLEASE STAND BY", "TRACKING...", "NOW PLAYING"];
+let idx = 0;
+
+function renderOff(text) {
+  octx.fillStyle = '#000'; octx.fillRect(0, 0, off.width, off.height);
+  octx.fillStyle = '#e8e8e8';
+  octx.font = '900 72px "Arial Narrow", Arial, sans-serif';
+  octx.textAlign = 'center'; octx.textBaseline = 'middle';
+  octx.fillText(text, off.width / 2, off.height / 2);
+}
+renderOff(phrases[idx]);
+
+let state = 'tunein';
+let stateFrame = 0;
+const DUR = { tunein: 40, hold: 80, trans: 35 };
+
+function draw() {
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+  stateFrame++;
+  let glitchAmt = 0;
+  if (state === 'tunein') {
+    const t = Math.min(stateFrame / DUR.tunein, 1);
+    glitchAmt = (1 - t) * 40;
+    if (t >= 1) { state = 'hold'; stateFrame = 0; }
+  } else if (state === 'hold') {
+    glitchAmt = Math.random() < 0.05 ? 15 + Math.random() * 20 : 1.5;
+    if (stateFrame >= DUR.hold) { state = 'trans'; stateFrame = 0; }
+  } else if (state === 'trans') {
+    glitchAmt = 25;
+  }
+
+  const sliceH = 4;
+  for (let y = 0; y < canvas.height; y += sliceH) {
+    const dx = (Math.random() - 0.5) * glitchAmt * (Math.random() < 0.3 ? 1 : 0.2);
+    ctx.globalCompositeOperation = 'lighter';
+    ctx.globalAlpha = 0.5;
+    ctx.drawImage(off, 0, y, off.width, sliceH, dx - 2, y, off.width, sliceH);
+    ctx.drawImage(off, 0, y, off.width, sliceH, dx + 2, y, off.width, sliceH);
+    ctx.globalAlpha = 1;
+    ctx.globalCompositeOperation = 'source-over';
+    ctx.drawImage(off, 0, y, off.width, sliceH, dx, y, off.width, sliceH);
+  }
+
+  ctx.fillStyle = 'rgba(0,0,0,0.15)';
+  for (let y = 0; y < canvas.height; y += 3) { ctx.fillRect(0, y, canvas.width, 1); }
+
+  if (state === 'trans') {
+    const t = Math.min(stateFrame / DUR.trans, 1);
+    const bandY = t * canvas.height * 1.3 - 60;
+    const bandH = 90;
+    for (let by = bandY; by < bandY + bandH; by += 2) {
+      if (by < 0 || by > canvas.height) continue;
+      for (let bx = 0; bx < canvas.width; bx += 6) {
+        const v = Math.floor(Math.random() * 255);
+        ctx.fillStyle = `rgb(${v},${v},${v})`;
+        ctx.fillRect(bx, by, 6, 2);
+      }
+    }
+    if (t >= 1) {
+      idx = (idx + 1) % phrases.length;
+      renderOff(phrases[idx]);
+      state = 'tunein'; stateFrame = 0;
+    }
+  }
+
+  requestAnimationFrame(draw);
+}
+draw();
+</script>
+</body>
+</html>
