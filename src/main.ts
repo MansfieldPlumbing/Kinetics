@@ -80,7 +80,7 @@ let cachedTotalLyrics = state.layoutGraph.nodes.filter((n) => n.type === 'lyric'
 function resizeCanvas() {
   logicalWidth = window.innerWidth || document.documentElement.clientWidth || document.body.clientWidth;
   logicalHeight = window.innerHeight || document.documentElement.clientHeight || document.body.clientHeight;
-  const dpr = Math.min(window.devicePixelRatio || 1, 2);
+  const dpr = window.devicePixelRatio || 1;
   canvas.width = Math.round(logicalWidth * dpr);
   canvas.height = Math.round(logicalHeight * dpr);
   canvas.style.width = `${logicalWidth}px`;
