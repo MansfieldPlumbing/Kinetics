@@ -4,7 +4,7 @@ import {defineConfig} from 'vite';
 
 export default defineConfig(() => {
   return {
-    base: process.env.GITHUB_PAGES === 'true' ? '/kinetics/' : '/',
+    base: process.env.GITHUB_PAGES === 'true' ? '/Kinetics/' : '/',
     plugins: [tailwindcss()],
     resolve: {
       alias: {
