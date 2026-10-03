@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
     <title>Kinetics — a typographic performance</title>
+    <meta name="theme-color" content="#f4f2eb" />
+    <link rel="manifest" href="%BASE_URL%manifest.webmanifest" />
+    <link rel="apple-touch-icon" href="%BASE_URL%icons/icon-192.png" />
     <meta name="description" content="An audio-synced kinetic typography performance across a continuous spatial graph." />
     <meta property="og:title" content="Kinetics — a typographic performance" />
     <meta property="og:description" content="Timed lyrics, camera choreography, and mathematical imagery in one continuous typographic world." />
@@ -155,5 +158,6 @@
   <body class="m-0 p-0 overflow-hidden select-none bg-[#f4f2eb] fixed inset-0 w-full h-full">
     <canvas id="kineticCanvas"></canvas>
     <script type="module" src="/src/main.ts"></script>
+    <script type="module" src="/src/pwa.ts"></script>
   </body>
 </html>
